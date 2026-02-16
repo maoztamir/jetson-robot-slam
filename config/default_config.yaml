@@ -1,0 +1,69 @@
+# ===========================================================================
+# Jetson Robot SLAM -- Default Configuration
+# ===========================================================================
+#
+# Copy to config/local_config.yaml and edit for your environment.
+# The application loads the file passed via --config, falling back to
+# this file if the path does not exist.
+#
+# Keys marked [code] are read by src/main.py and its sub-components.
+# Keys marked [ref] are for documentation / future use only.
+
+# ---------------------------------------------------------------------------
+# 1. Stereo camera (IMX219-83)
+# ---------------------------------------------------------------------------
+camera:
+  resolution: [640, 480]       # [code] capture width × height in pixels
+  fps: 30                      # [code] capture frame-rate
+  camera_id_left: 0            # [ref]  CSI sensor index for left lens
+  camera_id_right: 1           # [ref]  CSI sensor index for right lens
+  flip_method: 0               # [code] nvvidconv flip (0=none, 2=rotate-180)
+
+# ---------------------------------------------------------------------------
+# 2. IMU (MPU-6050 / MPU-9250 on the camera module)
+# ---------------------------------------------------------------------------
+imu:
+  i2c_bus: 1                   # [ref]  Linux I2C bus number (/dev/i2c-1)
+  i2c_address: 0x68            # [ref]  7-bit I2C address
+  accel_scale: 16384.0         # [ref]  LSB/g   (±2 g full-scale)
+  gyro_scale: 131.0            # [ref]  LSB/°/s (±250 °/s full-scale)
+  sample_rate_hz: 100          # [ref]  target poll rate in the IMU thread
+
+# ---------------------------------------------------------------------------
+# 3. ORB_SLAM3
+# ---------------------------------------------------------------------------
+slam:
+  vocab_path: /opt/ORB_SLAM3/Vocabulary/ORBvoc.txt   # [code] ORB vocabulary
+  settings_path: config/stereo_imu_settings.yaml      # [code] SLAM YAML
+  skip_frames: 1               # [code] process every Nth frame (1=all)
+  max_trajectory_points: 1000  # [code] pose buffer size (older poses evicted)
+
+# ---------------------------------------------------------------------------
+# 4. AWS IoT Core
+# ---------------------------------------------------------------------------
+aws:
+  enabled: true                                        # [code] false to disable
+  endpoint: your-endpoint.iot.us-east-1.amazonaws.com  # [code] IoT data endpoint
+  thing_name: jetson-robot-01                          # [code] MQTT client ID
+  root_ca: certs/AmazonRootCA1.pem                     # [code] Amazon root CA
+  certificate: certs/certificate.pem.crt               # [code] device cert
+  private_key: certs/private.pem.key                   # [code] device key
+  publish_interval: 5          # [code] publish every Nth pose
+  topic_prefix: robot          # [code] topic: <prefix>/<thing>/trajectory
+
+# ---------------------------------------------------------------------------
+# 5. Performance tuning (4 GB Jetson Nano)
+# ---------------------------------------------------------------------------
+performance:
+  max_memory_mb: 3000          # [ref]  target RSS ceiling in MB
+  enable_profiling: false      # [ref]  reserved for cProfile integration
+  log_stats_interval: 30       # [code] seconds between PERF log lines
+
+# ---------------------------------------------------------------------------
+# 6. Logging
+# ---------------------------------------------------------------------------
+logging:
+  level: INFO                  # [code] DEBUG | INFO | WARNING | ERROR
+  file: logs/robot.log         # [code] path relative to project root
+  max_bytes: 10485760          # [code] 10 MB per log file
+  backup_count: 5              # [code] rotated files to keep

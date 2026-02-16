@@ -1,0 +1,443 @@
+"""Main entry point for the Jetson robot SLAM pipeline.
+
+Integrates stereo camera capture, ORB_SLAM3 processing, and AWS IoT
+publishing into a single run-loop with graceful shutdown, periodic
+performance logging, and rotating file handlers.
+
+Usage::
+
+    python -m src.main
+    python -m src.main --config config/my_config.yaml --verbose
+    python -m src.main --no-aws --visualize
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import signal
+import sys
+import time
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from queue import Empty
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import yaml
+
+from src.sensors.camera_imu_handler import CameraIMUHandler, IMUSample
+from src.slam.orb_slam3_wrapper import ORBSLAM3Wrapper, TrackingState
+from src.cloud.aws_iot_publisher import AWSIoTPublisher
+
+logger = logging.getLogger("robot")
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_CONFIG = _PROJECT_ROOT / "config" / "default_config.yaml"
+
+# Maximum SLAM init retries before falling back to mock.
+_SLAM_INIT_RETRIES: int = 3
+_SLAM_INIT_DELAY: float = 2.0  # seconds between retries
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+def _load_config(path: str) -> Dict[str, Any]:
+    """Load a YAML config file, falling back to ``default_config.yaml``.
+
+    Args:
+        path: Caller-supplied path (may not exist).
+
+    Returns:
+        Parsed dict.  Empty dict if nothing is found.
+    """
+    candidates = [Path(path), _DEFAULT_CONFIG]
+    for p in candidates:
+        if p.is_file():
+            with open(p) as fh:
+                cfg = yaml.safe_load(fh) or {}
+            logger.info("Loaded config from %s", p)
+            return cfg
+    logger.warning("No config file found -- using built-in defaults")
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _setup_logging(cfg: Dict[str, Any], verbose: bool) -> None:
+    """Configure root logger with console + rotating file handlers.
+
+    Args:
+        cfg: ``logging`` section from the YAML config.
+        verbose: Override log level to DEBUG.
+    """
+    log_cfg = cfg.get("logging", {})
+    level_name = "DEBUG" if verbose else log_cfg.get("level", "INFO")
+    level = getattr(logging, level_name, logging.INFO)
+
+    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+    formatter = logging.Formatter(fmt, datefmt)
+
+    root = logging.getLogger()
+    root.setLevel(level)
+    # Avoid duplicate handlers on repeated calls.
+    root.handlers.clear()
+
+    # Console handler.
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(level)
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    # Rotating file handler.
+    log_file = log_cfg.get("file", "logs/robot.log")
+    log_path = _PROJECT_ROOT / log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_h = RotatingFileHandler(
+        str(log_path),
+        maxBytes=log_cfg.get("max_bytes", 10_485_760),
+        backupCount=log_cfg.get("backup_count", 5),
+    )
+    file_h.setLevel(level)
+    file_h.setFormatter(formatter)
+    root.addHandler(file_h)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Jetson robot -- stereo-inertial SLAM with AWS IoT",
+    )
+    p.add_argument(
+        "--config",
+        default=str(_DEFAULT_CONFIG),
+        help="Path to YAML config (default: config/default_config.yaml)",
+    )
+    p.add_argument(
+        "--verbose", action="store_true",
+        help="Set log level to DEBUG",
+    )
+    p.add_argument(
+        "--no-aws", action="store_true",
+        help="Disable AWS IoT publishing (SLAM only)",
+    )
+    p.add_argument(
+        "--visualize", action="store_true",
+        help="Show live stereo camera feed in an OpenCV window",
+    )
+    return p.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Performance monitor
+# ---------------------------------------------------------------------------
+
+class _PerfMonitor:
+    """Lightweight FPS / queue / memory tracker.
+
+    Accumulates per-interval counts and emits a single INFO log line
+    every *interval* seconds.
+    """
+
+    def __init__(self, interval: float = 30.0) -> None:
+        self._interval = interval
+        self._frames: int = 0
+        self._slam_ok: int = 0
+        self._slam_fail: int = 0
+        self._last_report = time.monotonic()
+
+    def tick_frame(self) -> None:
+        """Call once per camera frame received."""
+        self._frames += 1
+
+    def tick_slam(self, ok: bool) -> None:
+        """Call once per SLAM ``process_frame`` call."""
+        if ok:
+            self._slam_ok += 1
+        else:
+            self._slam_fail += 1
+
+    def maybe_report(
+        self,
+        cam_qsize: int,
+        imu_qsize: int,
+        slam: ORBSLAM3Wrapper,
+        publisher: Optional[AWSIoTPublisher],
+    ) -> None:
+        """Emit a log line if *interval* seconds have elapsed."""
+        now = time.monotonic()
+        dt = now - self._last_report
+        if dt < self._interval:
+            return
+
+        fps = self._frames / dt if dt > 0 else 0.0
+        slam_total = self._slam_ok + self._slam_fail
+        slam_pct = (
+            (self._slam_ok / slam_total * 100.0) if slam_total > 0 else 0.0
+        )
+        mem_mb = _get_rss_mb()
+
+        parts = [
+            f"fps={fps:.1f}",
+            f"slam={slam_pct:.0f}%({self._slam_ok}/{slam_total})",
+            f"state={slam.state.name}",
+            f"cam_q={cam_qsize}",
+            f"imu_q={imu_qsize}",
+            f"mem={mem_mb:.0f}MB",
+        ]
+        if publisher is not None:
+            parts.append(f"pub={publisher.publish_count}")
+            parts.append(f"err={publisher.error_count}")
+
+        logger.info("PERF  %s", "  ".join(parts))
+
+        # Reset interval counters.
+        self._frames = 0
+        self._slam_ok = 0
+        self._slam_fail = 0
+        self._last_report = now
+
+
+def _get_rss_mb() -> float:
+    """Read the current process RSS from ``/proc/self/status``."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024.0
+    except Exception:
+        pass
+    return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Component construction
+# ---------------------------------------------------------------------------
+
+def _build_camera(cfg: Dict[str, Any]) -> CameraIMUHandler:
+    cam = cfg.get("camera", {})
+    res = cam.get("resolution", [640, 480])
+    return CameraIMUHandler(
+        width=res[0],
+        height=res[1],
+        fps=cam.get("fps", 30),
+        flip_method=cam.get("flip_method", 0),
+        enable_imu=True,
+    )
+
+
+def _build_slam(cfg: Dict[str, Any]) -> ORBSLAM3Wrapper:
+    s = cfg.get("slam", {})
+    return ORBSLAM3Wrapper(
+        vocab_path=s.get("vocab_path", "/opt/ORB_SLAM3/Vocabulary/ORBvoc.txt"),
+        settings_path=s.get("settings_path", "config/stereo_imu_settings.yaml"),
+        use_imu=True,
+        trajectory_maxlen=s.get("max_trajectory_points", 1000),
+        frame_skip=s.get("skip_frames", 1),
+    )
+
+
+def _build_publisher(cfg: Dict[str, Any]) -> AWSIoTPublisher:
+    a = cfg.get("aws", {})
+    return AWSIoTPublisher(
+        endpoint=a.get("endpoint", ""),
+        thing_name=a.get("thing_name", "jetson-robot-01"),
+        root_ca=a.get("root_ca", "certs/AmazonRootCA1.pem"),
+        cert_path=a.get("certificate", "certs/certificate.pem.crt"),
+        key_path=a.get("private_key", "certs/private.pem.key"),
+        publish_interval=a.get("publish_interval", 5),
+        topic_prefix=a.get("topic_prefix", "robot"),
+    )
+
+
+def _init_slam_with_retry(slam: ORBSLAM3Wrapper) -> None:
+    """Try to initialise SLAM up to ``_SLAM_INIT_RETRIES`` times.
+
+    On repeated failure the wrapper still works — it runs its internal
+    mock backend.
+    """
+    for attempt in range(1, _SLAM_INIT_RETRIES + 1):
+        try:
+            slam.initialise()
+            return
+        except FileNotFoundError as exc:
+            logger.error(
+                "SLAM init attempt %d/%d failed: %s",
+                attempt, _SLAM_INIT_RETRIES, exc,
+            )
+            if attempt < _SLAM_INIT_RETRIES:
+                time.sleep(_SLAM_INIT_DELAY)
+
+    # Final attempt — will fall back to mock inside the wrapper.
+    logger.warning("All SLAM init retries exhausted -- starting in mock mode")
+    slam.initialise()
+
+
+# ---------------------------------------------------------------------------
+# Drain helpers
+# ---------------------------------------------------------------------------
+
+def _drain_imu(camera: CameraIMUHandler, max_samples: int = 10) -> List[IMUSample]:
+    """Collect up to *max_samples* IMU readings without blocking."""
+    samples: List[IMUSample] = []
+    for _ in range(max_samples):
+        try:
+            s = camera.imu_queue.get_nowait()
+            samples.append(s)
+        except Empty:
+            break
+    return samples
+
+
+# ---------------------------------------------------------------------------
+# Visualisation
+# ---------------------------------------------------------------------------
+
+def _show_stereo(
+    left: np.ndarray,
+    right: np.ndarray,
+    state: TrackingState,
+) -> bool:
+    """Display a side-by-side stereo view.  Returns ``False`` if the
+    user presses 'q' to quit.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return True
+
+    combined = np.hstack((left, right))
+    colour = (0, 255, 0) if state == TrackingState.TRACKING else (0, 0, 255)
+    cv2.putText(
+        combined, state.name, (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.8, colour, 2,
+    )
+    cv2.imshow("Stereo", combined)
+    return (cv2.waitKey(1) & 0xFF) != ord("q")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    args = _parse_args()
+    cfg = _load_config(args.config)
+    _setup_logging(cfg, args.verbose)
+
+    logger.info("Starting Jetson robot SLAM pipeline")
+
+    # ---- build components ------------------------------------------------ #
+    camera = _build_camera(cfg)
+    slam = _build_slam(cfg)
+
+    publisher: Optional[AWSIoTPublisher] = None
+    aws_cfg = cfg.get("aws", {})
+    if not args.no_aws and aws_cfg.get("enabled", True):
+        publisher = _build_publisher(cfg)
+
+    perf_interval = cfg.get("performance", {}).get("log_stats_interval", 30)
+    perf = _PerfMonitor(interval=perf_interval)
+
+    # ---- graceful shutdown ----------------------------------------------- #
+    shutdown = False
+
+    def _on_signal(sig: int, _: Any) -> None:
+        nonlocal shutdown
+        logger.info("Received signal %d -- shutting down", sig)
+        shutdown = True
+
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
+    # ---- start ----------------------------------------------------------- #
+    try:
+        camera.start()
+    except RuntimeError:
+        logger.exception("Camera initialisation failed -- aborting")
+        sys.exit(1)
+
+    _init_slam_with_retry(slam)
+
+    if publisher is not None:
+        publisher.connect()
+
+    logger.info("All systems running -- press Ctrl+C to stop")
+
+    # ---- run loop -------------------------------------------------------- #
+    visualize = args.visualize
+
+    try:
+        while not shutdown:
+            # 1. Get stereo frame (blocks up to 0.5 s).
+            frame = camera.get_stereo_frame(timeout=0.5)
+            if frame is None:
+                continue
+            left, right, ts = frame
+            perf.tick_frame()
+
+            # 2. Collect recent IMU measurements.
+            imu_batch = _drain_imu(camera, max_samples=10)
+
+            # 3. Process through SLAM.
+            pose = slam.process_frame(
+                left, right, ts,
+                imu_batch if imu_batch else None,
+            )
+            tracking_ok = pose is not None
+            perf.tick_slam(tracking_ok)
+
+            # 4. Publish pose (throttled inside publisher).
+            if tracking_ok and publisher is not None:
+                publisher.publish_pose(pose, ts)
+
+            # 5. Optional visualisation.
+            if visualize:
+                if not _show_stereo(left, right, slam.state):
+                    shutdown = True
+
+            # 6. Periodic performance report.
+            perf.maybe_report(
+                camera.frame_queue.qsize(),
+                camera.imu_queue.qsize(),
+                slam,
+                publisher,
+            )
+
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received")
+
+    # ---- shutdown -------------------------------------------------------- #
+    finally:
+        logger.info("Shutting down...")
+        camera.stop()
+
+        traj_path = str(_PROJECT_ROOT / "trajectory.txt")
+        slam.save_trajectory(traj_path)
+        slam.shutdown()
+
+        if publisher is not None:
+            publisher.disconnect()
+
+        if visualize:
+            try:
+                import cv2
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
+
+    logger.info("Goodbye")
+
+
+if __name__ == "__main__":
+    main()

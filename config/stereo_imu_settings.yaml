@@ -1,0 +1,121 @@
+%YAML:1.0
+
+# ===========================================================================
+# ORB_SLAM3 Settings -- IMX219-83 Stereo + IMU, 640x480 @ 30 fps
+# ===========================================================================
+#
+# Tuned for 4 GB Jetson Nano (reduced feature count, viewer disabled).
+# Replace placeholder intrinsics with values from your own calibration.
+# Calibrate with: kalibr, OpenCV stereoCalibrate, or MATLAB stereo app.
+#
+# Reference: https://github.com/UZ-SLAMLab/ORB_SLAM3
+
+File.version: "1.0"
+
+# ---------------------------------------------------------------------------
+# Camera 1 (left) -- pinhole model
+# ---------------------------------------------------------------------------
+Camera.type: "PinHole"
+
+Camera1.fx: 330.0
+Camera1.fy: 330.0
+Camera1.cx: 320.0
+Camera1.cy: 240.0
+
+# Radial-tangential distortion coefficients: k1, k2, p1, p2
+Camera1.k1: -0.2800
+Camera1.k2:  0.0700
+Camera1.p1:  0.0000
+Camera1.p2:  0.0000
+
+# ---------------------------------------------------------------------------
+# Camera 2 (right) -- pinhole model
+# ---------------------------------------------------------------------------
+Camera2.fx: 330.0
+Camera2.fy: 330.0
+Camera2.cx: 320.0
+Camera2.cy: 240.0
+
+Camera2.k1: -0.2800
+Camera2.k2:  0.0700
+Camera2.p1:  0.0000
+Camera2.p2:  0.0000
+
+# ---------------------------------------------------------------------------
+# Stereo geometry
+# ---------------------------------------------------------------------------
+Camera.width:  640
+Camera.height: 480
+Camera.fps:    30
+
+# baseline (m) * fx = 0.083 * 330.0
+Camera.bf: 27.39
+
+# 0 = BGR (OpenCV default), 1 = RGB
+Camera.RGB: 0
+
+# Close/far point threshold in multiples of baseline
+Stereo.ThDepth: 40.0
+
+# Baseline in metres (83 mm for the IMX219-83 module)
+Stereo.b: 0.083
+
+# 4x4 transform from left camera to right camera
+Stereo.T_c1_c2: !!opencv-matrix
+  rows: 4
+  cols: 4
+  dt: f
+  data: [ 1.0,  0.0,  0.0, -0.083,
+          0.0,  1.0,  0.0,  0.000,
+          0.0,  0.0,  1.0,  0.000,
+          0.0,  0.0,  0.0,  1.000]
+
+# ---------------------------------------------------------------------------
+# IMU noise model (MPU-6050 / MPU-9250)
+# ---------------------------------------------------------------------------
+# Values from datasheet typical noise densities.
+# Re-characterise with Allan variance for better accuracy.
+
+IMU.NoiseGyro:  1.7e-04       # rad/s / sqrt(Hz)
+IMU.NoiseAcc:   2.0e-03       # m/s^2 / sqrt(Hz)
+IMU.GyroWalk:   1.9e-05       # rad/s^2 / sqrt(Hz)
+IMU.AccWalk:    3.0e-03       # m/s^3 / sqrt(Hz)
+IMU.Frequency:  200.0         # Hz (internal interpolation rate)
+
+# Body (IMU) to left camera extrinsic
+# The IMU sits ~20 mm in front of the left lens on the IMX219-83 PCB.
+IMU.T_b_c1: !!opencv-matrix
+  rows: 4
+  cols: 4
+  dt: f
+  data: [ 1.0,  0.0,  0.0,  0.020,
+          0.0,  1.0,  0.0,  0.000,
+          0.0,  0.0,  1.0,  0.000,
+          0.0,  0.0,  0.0,  1.000]
+
+# Body (IMU) to right camera extrinsic
+# Right lens is 83 mm to the right -> x offset = 0.020 - 0.083 = -0.063
+IMU.T_b_c2: !!opencv-matrix
+  rows: 4
+  cols: 4
+  dt: f
+  data: [ 1.0,  0.0,  0.0, -0.063,
+          0.0,  1.0,  0.0,  0.000,
+          0.0,  0.0,  1.0,  0.000,
+          0.0,  0.0,  0.0,  1.000]
+
+IMU.InsertKFsWhenLost: 1
+
+# ---------------------------------------------------------------------------
+# ORB feature extractor (reduced for 4 GB Jetson Nano)
+# ---------------------------------------------------------------------------
+ORBextractor.nFeatures:   800  # default 1200 -- reduced to save ~100 MB RAM
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels:     8
+ORBextractor.iniThFAST:   20
+ORBextractor.minThFAST:   7
+
+# ---------------------------------------------------------------------------
+# Viewer (disabled for headless Jetson operation)
+# ---------------------------------------------------------------------------
+Viewer.on: 0

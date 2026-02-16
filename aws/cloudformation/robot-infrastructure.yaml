@@ -1,0 +1,440 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Jetson Robot SLAM -- AWS infrastructure.
+  Creates IoT Thing + Policy, DynamoDB table with Streams, IoT Rule,
+  Lambda stream processor, Location Service tracker/map, Cognito
+  identity pool for the web dashboard, and all supporting IAM roles.
+
+# =========================================================================
+# Parameters
+# =========================================================================
+Parameters:
+  ProjectName:
+    Type: String
+    Default: jetson-robot-slam
+    Description: Prefix used for naming all resources.
+
+  ThingName:
+    Type: String
+    Default: jetson-robot-01
+    Description: >-
+      IoT Thing name.  Must match the thing_name in
+      config/default_config.yaml and the MQTT client ID used by the
+      Jetson publisher.
+
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional email for SNS operational alerts.  Leave empty to skip
+      the subscription.
+
+  OriginLatitude:
+    Type: String
+    Default: "32.0853"
+    Description: >-
+      GPS latitude of the SLAM coordinate-system origin.  Used by the
+      Lambda function to convert SLAM metres into WGS-84 coordinates.
+
+  OriginLongitude:
+    Type: String
+    Default: "34.7818"
+    Description: GPS longitude of the SLAM coordinate-system origin.
+
+  TtlDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    MaxValue: 3650
+    Description: DynamoDB TTL -- records older than this are auto-deleted.
+
+# =========================================================================
+# Conditions
+# =========================================================================
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+# =========================================================================
+# Resources
+# =========================================================================
+Resources:
+
+  # -----------------------------------------------------------------------
+  # 1. IoT Thing
+  #
+  # Represents the physical Jetson Nano robot in the AWS IoT registry.
+  # Attributes are informational metadata visible in the console.
+  # -----------------------------------------------------------------------
+  RobotThing:
+    Type: AWS::IoT::Thing
+    Properties:
+      ThingName: !Ref ThingName
+      AttributePayload:
+        Attributes:
+          project: !Ref ProjectName
+          board: jetson-nano-4gb
+          camera: imx219-83-stereo
+
+  # -----------------------------------------------------------------------
+  # 2. IoT Policy
+  #
+  # Least-privilege policy scoped to the thing's own client ID and topic
+  # namespace.  The wildcard in the topic ARN allows both /trajectory
+  # and /telemetry sub-topics.
+  # -----------------------------------------------------------------------
+  RobotIoTPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: !Sub "${ProjectName}-iot-policy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow MQTT connect using the thing name as the client ID.
+          - Effect: Allow
+            Action:
+              - iot:Connect
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:client/${ThingName}"
+
+          # Allow publishing to robot/<thing>/* (trajectory + telemetry).
+          - Effect: Allow
+            Action:
+              - iot:Publish
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/robot/${ThingName}/*"
+
+          # Allow subscribing to the thing's own topic filter.
+          - Effect: Allow
+            Action:
+              - iot:Subscribe
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/robot/${ThingName}/*"
+
+          # Allow receiving messages on subscribed topics.
+          - Effect: Allow
+            Action:
+              - iot:Receive
+            Resource:
+              - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/robot/${ThingName}/*"
+
+  # -----------------------------------------------------------------------
+  # 3. DynamoDB Table -- RobotTrajectory
+  #
+  # Stores every published pose.  Partitioned by device_id so multiple
+  # robots share one table.  Sorted by timestamp for efficient range
+  # queries.  TTL auto-deletes records after TtlDays.  DynamoDB Streams
+  # (NEW_IMAGE) feeds the Lambda processor.
+  # -----------------------------------------------------------------------
+  TrajectoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: RobotTrajectory
+      BillingMode: PAY_PER_REQUEST
+
+      AttributeDefinitions:
+        - AttributeName: device_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+
+      KeySchema:
+        - AttributeName: device_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # -----------------------------------------------------------------------
+  # 4. IoT Rule -- RobotTrajectoryRule
+  #
+  # SQL selects from robot/+/trajectory (single-level wildcard) so any
+  # thing name is routed.  The DynamoDBv2 action writes the full MQTT
+  # payload as a DynamoDB item.  The role below grants PutItem access.
+  # -----------------------------------------------------------------------
+  TrajectoryIoTRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: RobotTrajectoryRule
+      TopicRulePayload:
+        AwsIotSqlVersion: "2016-03-23"
+        Sql: "SELECT *, timestamp() AS ingested_at FROM 'robot/+/trajectory'"
+        RuleDisabled: false
+        Actions:
+          - DynamoDBv2:
+              RoleArn: !GetAtt IoTRuleDynamoRole.Arn
+              PutItem:
+                TableName: !Ref TrajectoryTable
+        ErrorAction:
+          CloudwatchLogs:
+            LogGroupName: !Sub "/aws/iot/${ProjectName}/errors"
+            RoleArn: !GetAtt IoTRuleDynamoRole.Arn
+
+  # -----------------------------------------------------------------------
+  # IAM Role -- allows the IoT Rule to write to DynamoDB and log errors
+  # -----------------------------------------------------------------------
+  IoTRuleDynamoRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-iot-dynamo-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iot.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoPutAndLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                Resource: !GetAtt TrajectoryTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/iot/${ProjectName}/*"
+
+  # -----------------------------------------------------------------------
+  # 5. Lambda Function -- ProcessTrajectory
+  #
+  # Triggered by DynamoDB Streams (INSERT events only).  Converts SLAM
+  # XY coordinates to GPS lat/lon using the configurable origin and
+  # calls Location Service BatchUpdateDevicePosition.
+  #
+  # The real handler code lives in aws/lambda/process_trajectory.py and
+  # is deployed via scripts/setup_aws.sh.  The inline ZipFile is a
+  # placeholder so the stack can be created before the code is uploaded.
+  # -----------------------------------------------------------------------
+  ProcessTrajectoryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-process-trajectory"
+      Runtime: python3.11
+      Handler: process_trajectory.handler
+      Timeout: 30
+      MemorySize: 256
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          TRACKER_NAME: !Ref LocationTracker
+          ORIGIN_LAT: !Ref OriginLatitude
+          ORIGIN_LON: !Ref OriginLongitude
+          TABLE_NAME: !Ref TrajectoryTable
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              """Placeholder -- deploy real code with setup_aws.sh."""
+              return {"statusCode": 200, "body": "placeholder"}
+
+  # DynamoDB Streams -> Lambda event-source mapping.
+  # Batches up to 25 records or waits 5 s, whichever comes first.
+  TrajectoryStreamMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt TrajectoryTable.StreamArn
+      FunctionName: !Ref ProcessTrajectoryFunction
+      StartingPosition: LATEST
+      BatchSize: 25
+      MaximumBatchingWindowInSeconds: 5
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"eventName": ["INSERT"]}'
+      Enabled: true
+
+  # -----------------------------------------------------------------------
+  # Lambda Execution Role
+  #
+  # Grants: CloudWatch Logs (managed policy), DynamoDB Streams read,
+  # and Location Service BatchUpdateDevicePosition.
+  # -----------------------------------------------------------------------
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: StreamAndLocation
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Read DynamoDB Stream shards.
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:DescribeStream
+                  - dynamodb:ListStreams
+                Resource: !Sub "${TrajectoryTable.Arn}/stream/*"
+
+              # Update device positions in Location Service.
+              - Effect: Allow
+                Action:
+                  - geo:BatchUpdateDevicePosition
+                Resource: !GetAtt LocationTracker.Arn
+
+  # -----------------------------------------------------------------------
+  # 6. AWS Location Service
+  #
+  # Tracker -- stores device positions (written by the Lambda).
+  # Map     -- provides basemap tiles for the web dashboard.
+  # Both use RequestBasedUsage pricing (no monthly commitment).
+  # -----------------------------------------------------------------------
+  LocationTracker:
+    Type: AWS::Location::Tracker
+    Properties:
+      TrackerName: robot-trajectory-tracker
+      PricingPlan: RequestBasedUsage
+      Description: >-
+        Stores robot positions converted from SLAM coordinates by the
+        ProcessTrajectory Lambda function.
+
+  LocationMap:
+    Type: AWS::Location::Map
+    Properties:
+      MapName: robot-trajectory-map
+      PricingPlan: RequestBasedUsage
+      Description: Basemap for the robot trajectory web dashboard.
+      Configuration:
+        Style: VectorEsriNavigation
+
+  # -----------------------------------------------------------------------
+  # 7. Cognito Identity Pool -- unauthenticated web dashboard access
+  #
+  # The browser-based trajectory viewer uses this pool to obtain
+  # temporary AWS credentials and call Location Service APIs directly
+  # (GetDevicePositionHistory, GetMapTile, etc.) without a backend.
+  # -----------------------------------------------------------------------
+  CognitoIdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub "${ProjectName}-web-pool"
+      AllowUnauthenticatedIdentities: true
+
+  # IAM role assumed by unauthenticated Cognito identities.
+  # Scoped to read-only Location Service actions on our specific
+  # tracker and map resources.
+  CognitoUnauthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-cognito-unauth"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "cognito-identity.amazonaws.com:aud": !Ref CognitoIdentityPool
+              "ForAnyValue:StringLike":
+                "cognito-identity.amazonaws.com:amr": unauthenticated
+      Policies:
+        - PolicyName: LocationReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Map tile retrieval for the web viewer.
+              - Effect: Allow
+                Action:
+                  - geo:GetMapTile
+                  - geo:GetMapStyleDescriptor
+                  - geo:GetMapGlyphs
+                  - geo:GetMapSprites
+                Resource: !GetAtt LocationMap.Arn
+
+              # Device position queries for the web viewer.
+              - Effect: Allow
+                Action:
+                  - geo:GetDevicePosition
+                  - geo:GetDevicePositionHistory
+                Resource: !GetAtt LocationTracker.Arn
+
+  # Attach the unauth role to the identity pool.
+  CognitoRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref CognitoIdentityPool
+      Roles:
+        unauthenticated: !GetAtt CognitoUnauthRole.Arn
+
+  # -----------------------------------------------------------------------
+  # SNS Alert Topic (optional)
+  # -----------------------------------------------------------------------
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${ProjectName}-alerts"
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+# =========================================================================
+# Outputs
+# =========================================================================
+Outputs:
+  IoTEndpoint:
+    Description: >-
+      Run this command to get the data-plane endpoint for
+      config/default_config.yaml:
+      aws iot describe-endpoint --endpoint-type iot:Data-ATS
+    Value: !Sub "https://${AWS::AccountId}.iot.${AWS::Region}.amazonaws.com"
+
+  DynamoDBTableName:
+    Description: Trajectory storage table name.
+    Value: !Ref TrajectoryTable
+    Export:
+      Name: !Sub "${ProjectName}-table"
+
+  TrackerName:
+    Description: Location Service tracker name (for Lambda env).
+    Value: !Ref LocationTracker
+    Export:
+      Name: !Sub "${ProjectName}-tracker"
+
+  MapName:
+    Description: Location Service map name (for web dashboard).
+    Value: !Ref LocationMap
+
+  IdentityPoolId:
+    Description: Cognito Identity Pool ID (for web dashboard JS config).
+    Value: !Ref CognitoIdentityPool
+    Export:
+      Name: !Sub "${ProjectName}-identity-pool"
+
+  AlertTopicArn:
+    Description: SNS topic for operational alerts.
+    Value: !Ref AlertTopic
+
+  LambdaFunctionName:
+    Description: Lambda function to update with real code.
+    Value: !Ref ProcessTrajectoryFunction
