@@ -109,7 +109,8 @@ class _IMUReader:
         """Initialise the ICM-20948 sensor."""
         try:
             from icm20948 import ICM20948
-            self._imu = ICM20948(i2c_addr=self._address, i2c_bus=self._bus_id)
+            from smbus2 import SMBus
+            self._imu = ICM20948(i2c_addr=self._address, i2c_bus=SMBus(self._bus_id))
             self._mock = False
             logger.info(
                 "IMU (ICM-20948) opened on I2C bus %d, address 0x%02X",
