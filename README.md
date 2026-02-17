@@ -6,7 +6,7 @@ Stereo-inertial SLAM pipeline for the Jetson Nano using ORB_SLAM3, an IMX219-83 
 
 - **Jetson Nano** (4 GB recommended)
 - **IMX219-83 stereo camera module** connected via dual CSI (sensor-id 0 = left, sensor-id 1 = right)
-- **MPU-6050 or MPU-9250 IMU** on the camera module PCB, accessible over I2C bus 1 at address `0x68`
+- **ICM-20948 9-DoF IMU** on the camera module PCB (accessed via Waveshare driver)
 
 ## Prerequisites
 
@@ -42,7 +42,7 @@ pip3 install numpy pyyaml smbus2
 For AWS IoT publishing (optional):
 
 ```bash
-pip3 install AWSIoTPythonSDK
+pip3 install awsiotsdk
 ```
 
 ### 5. ORB_SLAM3 (optional)
@@ -85,7 +85,7 @@ jetson-robot-slam/
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url> ~/jetson-robot-slam
+git clone https://github.com/maoztamir/jetson-robot-slam.git ~/jetson-robot-slam
 cd ~/jetson-robot-slam
 ```
 
@@ -103,13 +103,19 @@ gst-launch-1.0 nvarguscamerasrc sensor-id=1 ! fakesink
 
 If either fails, check the ribbon cable connections.
 
-### 3. Verify the IMU
+### 3. Verify the IMU (ICM-20948)
+
+The IMX219-83 module uses an ICM-20948 9-DoF IMU accessed via the Waveshare driver:
 
 ```bash
-sudo i2cdetect -y 1
+wget https://files.waveshare.com/upload/e/eb/D219-9dof.tar.gz
+tar zxvf D219-9dof.tar.gz
+cd D219-9dof/07-icm20948-demo
+make
+./ICM20948-Demo
 ```
 
-You should see device `68` in the output. If not, check the I2C wiring.
+You should see live accelerometer, gyroscope, and magnetometer readings. If not, check the CSI connection to the camera module.
 
 ### 4. Configure
 

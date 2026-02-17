@@ -45,7 +45,7 @@ aws:
   enabled: true                                        # [code] false to disable
   endpoint: aw4tyjjeoxel4-ats.iot.us-east-2.amazonaws.com  # [code] IoT data endpoint
   thing_name: tele2-jetson                                # [code] MQTT client ID
-  root_ca: certs/root-CA.crt      # [code] Amazon root CA
+  # root_ca: certs/root-CA.crt    # [code] optional -- system trust store used if omitted
   certificate: certs/tele2-jetson.cert.pem                # [code] device cert
   private_key: certs/tele2-jetson.private.key             # [code] device key
   publish_interval: 5          # [code] publish every Nth pose

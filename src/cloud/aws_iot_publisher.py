@@ -1,9 +1,10 @@
 """AWS IoT Core MQTT publisher for robot telemetry.
 
-Publishes 6-DoF poses and system telemetry to AWS IoT Core using
-``AWSIoTPythonSDK``.  Features automatic reconnection with exponential
-back-off, offline message queueing, configurable pose throttling, and
-compact JSON payloads (floats rounded to 4 d.p.).
+Publishes 6-DoF poses and system telemetry to AWS IoT Core using the
+``aws-iot-device-sdk-python-v2`` (MQTT5).  Uses the system trust store
+by default so no root CA file is needed.  Features automatic
+reconnection (handled by the v2 SDK), configurable pose throttling,
+and compact JSON payloads (floats rounded to 4 d.p.).
 
 When the SDK is not installed or the connection fails the publisher
 operates in **mock mode** — every method succeeds but messages are
@@ -14,7 +15,6 @@ Typical usage::
     pub = AWSIoTPublisher(
         endpoint="abc.iot.us-east-1.amazonaws.com",
         thing_name="jetson-robot-01",
-        root_ca="certs/AmazonRootCA1.pem",
         cert_path="certs/certificate.pem.crt",
         key_path="certs/private.pem.key",
     )
@@ -108,16 +108,17 @@ def rotation_matrix_to_quaternion(R: np.ndarray) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 
 class AWSIoTPublisher:
-    """MQTT publisher for AWS IoT Core with reconnect and throttling.
+    """MQTT5 publisher for AWS IoT Core with reconnect and throttling.
 
     Args:
         endpoint:         AWS IoT data endpoint
                           (``*.iot.<region>.amazonaws.com``).
         thing_name:       IoT Thing name — also used as the MQTT client
                           ID and as the ``device_id`` in payloads.
-        root_ca:          Path to the Amazon Root CA certificate.
         cert_path:        Path to the device certificate (PEM).
         key_path:         Path to the device private key (PEM).
+        root_ca:          Optional path to a custom root CA certificate.
+                          When *None* the system trust store is used.
         publish_interval: Only publish every *N*-th pose (1 = every).
         topic_prefix:     MQTT topic root.  Poses are published to
                           ``<prefix>/<thing_name>/trajectory``.
@@ -128,10 +129,10 @@ class AWSIoTPublisher:
         self,
         endpoint: str,
         thing_name: str,
-        root_ca: str,
         cert_path: str,
         key_path: str,
         *,
+        root_ca: Optional[str] = None,
         publish_interval: int = 5,
         topic_prefix: str = "robot",
         qos: int = 1,
@@ -144,11 +145,12 @@ class AWSIoTPublisher:
         self._publish_interval = max(1, publish_interval)
         self._qos = qos
 
-        self._client: Any = None          # AWSIoTMQTTClient or None
+        self._client: Any = None          # Mqtt5Client or None
         self._connected: bool = False
         self._mock: bool = False
 
         self._lock = threading.Lock()
+        self._connection_event = threading.Event()
         self._pose_counter: int = 0
         self._publish_count: int = 0
         self._error_count: int = 0
@@ -177,34 +179,54 @@ class AWSIoTPublisher:
     # -- lifecycle --------------------------------------------------------- #
 
     def connect(self) -> None:
-        """Establish the MQTT connection to AWS IoT Core.
+        """Establish the MQTT5 connection to AWS IoT Core.
 
         On failure (missing SDK, bad certificates, network error) the
         publisher silently falls back to **mock mode** so the SLAM loop
         keeps running.
         """
         try:
-            from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
+            from awsiot import mqtt5_client_builder  # noqa: F811
+            from awscrt import mqtt5 as _mqtt5
 
-            client = AWSIoTMQTTClient(self._thing_name)
-            client.configureEndpoint(self._endpoint, 8883)
-            client.configureCredentials(
-                self._root_ca, self._key_path, self._cert_path,
+            def _on_lifecycle_connection_success(lifecycle_connect_success_data):
+                self._connected = True
+                self._connection_event.set()
+
+            def _on_lifecycle_connection_failure(lifecycle_connection_failure_data):
+                self._connection_event.set()
+
+            def _on_lifecycle_stopped(lifecycle_stopped_data):
+                self._connected = False
+
+            def _on_lifecycle_disconnection(lifecycle_disconnect_data):
+                self._connected = False
+
+            builder_kwargs = dict(
+                endpoint=self._endpoint,
+                port=8883,
+                cert_filepath=self._cert_path,
+                pri_key_filepath=self._key_path,
+                client_id=self._thing_name,
+                on_lifecycle_connection_success=_on_lifecycle_connection_success,
+                on_lifecycle_connection_failure=_on_lifecycle_connection_failure,
+                on_lifecycle_stopped=_on_lifecycle_stopped,
+                on_lifecycle_disconnection=_on_lifecycle_disconnection,
             )
+            if self._root_ca:
+                builder_kwargs["ca_filepath"] = self._root_ca
 
-            # ---- reconnect & queueing ------------------------------------ #
-            # Exponential back-off: base 1 s, max 32 s, stable 20 s.
-            client.configureAutoReconnectBackoffTime(1, 32, 20)
-            # Queue up to 100 messages while offline, drain at 2 msg/s.
-            client.configureOfflinePublishQueueing(100)
-            client.configureDrainingFrequency(2)
-            client.configureConnectDisconnectTimeout(10)
-            client.configureMQTTOperationTimeout(5)
+            client = mqtt5_client_builder.mtls_from_path(**builder_kwargs)
+            client.start()
 
-            client.connect()
+            # Wait for the connection lifecycle event (up to 10 s).
+            if not self._connection_event.wait(timeout=10):
+                raise TimeoutError("MQTT5 connection timed out after 10 s")
+
+            if not self._connected:
+                raise ConnectionError("MQTT5 lifecycle reported connection failure")
 
             self._client = client
-            self._connected = True
             self._mock = False
             logger.info(
                 "Connected to AWS IoT Core at %s as '%s'",
@@ -213,7 +235,7 @@ class AWSIoTPublisher:
 
         except ImportError:
             logger.warning(
-                "AWSIoTPythonSDK not installed -- running in mock mode"
+                "aws-iot-device-sdk-v2 not installed -- running in mock mode"
             )
             self._mock = True
 
@@ -233,7 +255,7 @@ class AWSIoTPublisher:
         """Disconnect from AWS IoT Core."""
         if self._client is not None and self._connected:
             try:
-                self._client.disconnect()
+                self._client.stop()
                 logger.info("Disconnected from AWS IoT Core")
             except Exception:
                 logger.debug("Disconnect error", exc_info=True)
@@ -341,7 +363,15 @@ class AWSIoTPublisher:
             return True
 
         try:
-            self._client.publish(topic, body, self._qos)
+            from awscrt.mqtt5 import PublishPacket, QoS
+
+            qos = QoS.AT_LEAST_ONCE if self._qos == 1 else QoS.AT_MOST_ONCE
+            publish_future = self._client.publish(PublishPacket(
+                topic=topic,
+                payload=body.encode("utf-8"),
+                qos=qos,
+            ))
+            publish_future.result(timeout=5)
             logger.info("Published to %s (device=%s)", topic, self._thing_name)
             with self._lock:
                 self._publish_count += 1
@@ -368,7 +398,6 @@ if __name__ == "__main__":
     pub = AWSIoTPublisher(
         endpoint="test.iot.us-east-1.amazonaws.com",
         thing_name="jetson-robot-01",
-        root_ca="certs/AmazonRootCA1.pem",
         cert_path="certs/certificate.pem.crt",
         key_path="certs/private.pem.key",
         publish_interval=3,

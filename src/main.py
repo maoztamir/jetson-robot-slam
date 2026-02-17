@@ -258,9 +258,9 @@ def _build_publisher(cfg: Dict[str, Any]) -> AWSIoTPublisher:
     return AWSIoTPublisher(
         endpoint=a.get("endpoint", ""),
         thing_name=a.get("thing_name", "jetson-robot-01"),
-        root_ca=a.get("root_ca", "certs/AmazonRootCA1.pem"),
         cert_path=a.get("certificate", "certs/certificate.pem.crt"),
         key_path=a.get("private_key", "certs/private.pem.key"),
+        root_ca=a.get("root_ca"),
         publish_interval=a.get("publish_interval", 5),
         topic_prefix=a.get("topic_prefix", "robot"),
     )
