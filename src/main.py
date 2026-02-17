@@ -14,6 +14,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import signal
@@ -134,6 +135,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--visualize", action="store_true",
         help="Show live stereo camera feed in an OpenCV window",
+    )
+    p.add_argument(
+        "--telemetry-file",
+        default="telemetry/telemetry.jsonl",
+        help="Path to local JSONL file for saving telemetry (default: telemetry/telemetry.jsonl)",
     )
     return p.parse_args()
 
@@ -349,6 +355,14 @@ def main() -> None:
     perf_interval = cfg.get("performance", {}).get("log_stats_interval", 30)
     perf = _PerfMonitor(interval=perf_interval)
 
+    # ---- telemetry file -------------------------------------------------- #
+    telem_path = Path(args.telemetry_file)
+    if not telem_path.is_absolute():
+        telem_path = _PROJECT_ROOT / telem_path
+    telem_path.parent.mkdir(parents=True, exist_ok=True)
+    telem_file = open(telem_path, "a")
+    logger.info("Telemetry file: %s", telem_path)
+
     # ---- graceful shutdown ----------------------------------------------- #
     shutdown = False
 
@@ -399,7 +413,13 @@ def main() -> None:
 
             # 4. Publish pose (throttled inside publisher).
             if tracking_ok and publisher is not None:
-                publisher.publish_pose(pose, ts)
+                sent = publisher.publish_pose(pose, ts)
+                if sent:
+                    payload = AWSIoTPublisher.build_pose_payload(
+                        pose, ts, cfg.get("aws", {}).get("thing_name", "jetson-robot-01"),
+                    )
+                    telem_file.write(json.dumps(payload) + "\n")
+                    telem_file.flush()
 
             # 5. Optional visualisation.
             if visualize:
@@ -428,6 +448,9 @@ def main() -> None:
 
         if publisher is not None:
             publisher.disconnect()
+
+        telem_file.close()
+        logger.info("Telemetry file closed: %s", telem_path)
 
         if visualize:
             try:

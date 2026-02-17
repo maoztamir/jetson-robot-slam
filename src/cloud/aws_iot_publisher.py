@@ -245,6 +245,40 @@ class AWSIoTPublisher:
 
     # -- publishing -------------------------------------------------------- #
 
+    @staticmethod
+    def build_pose_payload(
+        pose_matrix: np.ndarray,
+        timestamp: float,
+        thing_name: str,
+    ) -> dict:
+        """Build a pose payload dict from a 4x4 pose matrix.
+
+        This is the canonical format used for both MQTT publishing and
+        local telemetry file recording.
+
+        Args:
+            pose_matrix: 4x4 homogeneous ``T_wc`` (world <- camera).
+            timestamp:   Monotonic time of the pose.
+            thing_name:  Device / thing identifier.
+
+        Returns:
+            Dict with ``timestamp``, ``device_id``, ``position``, and
+            ``orientation`` keys.
+        """
+        position = pose_matrix[:3, 3]
+        orientation = rotation_matrix_to_quaternion(pose_matrix[:3, :3])
+
+        return {
+            "timestamp": round(float(timestamp), 4),
+            "device_id": thing_name,
+            "position": {
+                "x": round(float(position[0]), 4),
+                "y": round(float(position[1]), 4),
+                "z": round(float(position[2]), 4),
+            },
+            "orientation": orientation,
+        }
+
     def publish_pose(
         self,
         pose_matrix: np.ndarray,
@@ -268,20 +302,7 @@ class AWSIoTPublisher:
         if self._pose_counter % self._publish_interval != 0:
             return False
 
-        position = pose_matrix[:3, 3]
-        orientation = rotation_matrix_to_quaternion(pose_matrix[:3, :3])
-
-        payload = {
-            "timestamp": round(float(timestamp), 4),
-            "device_id": self._thing_name,
-            "position": {
-                "x": round(float(position[0]), 4),
-                "y": round(float(position[1]), 4),
-                "z": round(float(position[2]), 4),
-            },
-            "orientation": orientation,
-        }
-
+        payload = self.build_pose_payload(pose_matrix, timestamp, self._thing_name)
         return self._publish(self._topic_trajectory, payload)
 
     def publish_telemetry(self, data: Dict[str, Any]) -> bool:
@@ -314,13 +335,14 @@ class AWSIoTPublisher:
         body = json.dumps(payload, separators=(",", ":"))
 
         if self._mock or not self._connected:
-            logger.debug("[mock] %s  %s", topic, body[:200])
+            logger.info("[mock] Published to %s (device=%s)", topic, self._thing_name)
             with self._lock:
                 self._publish_count += 1
             return True
 
         try:
             self._client.publish(topic, body, self._qos)
+            logger.info("Published to %s (device=%s)", topic, self._thing_name)
             with self._lock:
                 self._publish_count += 1
             return True
