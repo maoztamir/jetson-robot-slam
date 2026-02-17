@@ -23,7 +23,6 @@ Typical usage::
 from __future__ import annotations
 
 import logging
-import struct
 import threading
 import time
 from queue import Empty, Full, Queue
@@ -38,16 +37,9 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# IMU register map (MPU-6050 / MPU-9250)
+# Default I2C parameters for ICM-20948 on the IMX219-83 camera module
 _IMU_I2C_BUS: int = 1
 _IMU_ADDRESS: int = 0x68
-_PWR_MGMT_1: int = 0x6B
-_ACCEL_XOUT_H: int = 0x3B   # 6 bytes: XH XL YH YL ZH ZL
-_GYRO_XOUT_H: int = 0x43    # 6 bytes: XH XL YH YL ZH ZL
-
-# Sensitivity for default +/-2 g / +/-250 deg/s full-scale ranges
-_ACCEL_SCALE: float = 16384.0  # LSB/g
-_GYRO_SCALE: float = 131.0     # LSB/(deg/s)
 
 
 # ---------------------------------------------------------------------------
@@ -94,11 +86,11 @@ def build_gstreamer_pipeline(
 # ---------------------------------------------------------------------------
 
 class _IMUReader:
-    """Low-level I2C reader for MPU-6050 / MPU-9250.
+    """ICM-20948 IMU reader using the Pimoroni ``icm20948`` library.
 
-    If the physical sensor is unreachable the reader falls back to
-    synthetic (mock) data so that the rest of the pipeline can still
-    be exercised on a desktop or when the IMU is disconnected.
+    If the library is not installed or the physical sensor is unreachable
+    the reader falls back to synthetic (mock) data so that the rest of
+    the pipeline can still be exercised on a desktop.
     """
 
     def __init__(
@@ -108,37 +100,29 @@ class _IMUReader:
     ) -> None:
         self._bus_id = bus
         self._address = address
-        self._bus: Any = None       # smbus2.SMBus when available
+        self._imu: Any = None       # ICM20948 instance when available
         self._mock: bool = False
 
     # -- lifecycle --------------------------------------------------------- #
 
     def open(self) -> None:
-        """Open the I2C bus and wake the MPU."""
+        """Initialise the ICM-20948 sensor."""
         try:
-            import smbus2
-            self._bus = smbus2.SMBus(self._bus_id)
-            # Wake the sensor (clear sleep bit in PWR_MGMT_1).
-            self._bus.write_byte_data(self._address, _PWR_MGMT_1, 0x00)
-            time.sleep(0.1)
+            from icm20948 import ICM20948
+            self._imu = ICM20948(i2c_addr=self._address, i2c_bus=self._bus_id)
             self._mock = False
             logger.info(
-                "IMU opened on I2C bus %d, address 0x%02X",
+                "IMU (ICM-20948) opened on I2C bus %d, address 0x%02X",
                 self._bus_id, self._address,
             )
         except Exception as exc:
             logger.warning("IMU unavailable (%s) -- using mock data", exc)
-            self._bus = None
+            self._imu = None
             self._mock = True
 
     def close(self) -> None:
-        """Release the I2C bus."""
-        if self._bus is not None:
-            try:
-                self._bus.close()
-            except Exception:
-                pass
-            self._bus = None
+        """Release the IMU (no-op for icm20948 library)."""
+        self._imu = None
 
     # -- reading ----------------------------------------------------------- #
 
@@ -160,31 +144,18 @@ class _IMUReader:
             return self._mock_reading()
 
     def _hw_reading(self) -> Dict[str, float]:
-        """Read raw registers and scale to physical units."""
-        raw_accel = self._bus.read_i2c_block_data(
-            self._address, _ACCEL_XOUT_H, 6,
-        )
-        raw_gyro = self._bus.read_i2c_block_data(
-            self._address, _GYRO_XOUT_H, 6,
-        )
-        ax, ay, az = self._unpack_3axis(raw_accel)
-        gx, gy, gz = self._unpack_3axis(raw_gyro)
+        """Read accelerometer and gyroscope via icm20948 library."""
+        ax, ay, az, gx, gy, gz = self._imu.read_accelerometer_gyro_data()
 
         return {
             "timestamp": time.monotonic(),
-            "accel_x": ax / _ACCEL_SCALE,
-            "accel_y": ay / _ACCEL_SCALE,
-            "accel_z": az / _ACCEL_SCALE,
-            "gyro_x": gx / _GYRO_SCALE,
-            "gyro_y": gy / _GYRO_SCALE,
-            "gyro_z": gz / _GYRO_SCALE,
+            "accel_x": ax,
+            "accel_y": ay,
+            "accel_z": az,
+            "gyro_x": gx,
+            "gyro_y": gy,
+            "gyro_z": gz,
         }
-
-    @staticmethod
-    def _unpack_3axis(buf: list) -> Tuple[float, float, float]:
-        """Decode three big-endian signed 16-bit values from *buf*."""
-        x, y, z = struct.unpack(">hhh", bytes(buf))
-        return float(x), float(y), float(z)
 
     @staticmethod
     def _mock_reading() -> Dict[str, float]:

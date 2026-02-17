@@ -36,7 +36,7 @@ sudo apt-get install -y \
 ### 4. Python dependencies
 
 ```bash
-pip3 install numpy pyyaml smbus2
+pip3 install numpy pyyaml icm20948
 ```
 
 For AWS IoT publishing (optional):
