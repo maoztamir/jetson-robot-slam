@@ -386,12 +386,12 @@ class AWSIoTPublisher:
             puback = getattr(result, "puback", None)
             if puback:
                 reason = puback.reason_code
-                logger.info(
+                logger.debug(
                     "Published to %s (device=%s) puback=%s",
                     topic, self._thing_name, repr(reason),
                 )
             else:
-                logger.info("Published to %s (device=%s)", topic, self._thing_name)
+                logger.debug("Published to %s (device=%s)", topic, self._thing_name)
             with self._lock:
                 self._publish_count += 1
             return True
