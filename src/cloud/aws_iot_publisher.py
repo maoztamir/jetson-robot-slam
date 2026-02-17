@@ -194,6 +194,12 @@ class AWSIoTPublisher:
                 self._connection_event.set()
 
             def _on_lifecycle_connection_failure(lifecycle_connection_failure_data):
+                connack = getattr(lifecycle_connection_failure_data, "connack_packet", None)
+                exc = getattr(lifecycle_connection_failure_data, "exception", None)
+                logger.error(
+                    "MQTT5 connection failure -- connack=%s  exception=%s",
+                    connack, exc,
+                )
                 self._connection_event.set()
 
             def _on_lifecycle_stopped(lifecycle_stopped_data):
