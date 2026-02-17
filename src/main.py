@@ -261,6 +261,7 @@ def _build_publisher(cfg: Dict[str, Any]) -> AWSIoTPublisher:
         cert_path=a.get("certificate", "certs/certificate.pem.crt"),
         key_path=a.get("private_key", "certs/private.pem.key"),
         root_ca=a.get("root_ca"),
+        client_id=a.get("client_id"),
         publish_interval=a.get("publish_interval", 5),
         topic_prefix=a.get("topic_prefix", "robot"),
     )

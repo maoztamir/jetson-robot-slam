@@ -113,12 +113,15 @@ class AWSIoTPublisher:
     Args:
         endpoint:         AWS IoT data endpoint
                           (``*.iot.<region>.amazonaws.com``).
-        thing_name:       IoT Thing name — also used as the MQTT client
-                          ID and as the ``device_id`` in payloads.
+        thing_name:       IoT Thing name — used as the ``device_id`` in
+                          payloads and in topic paths.
         cert_path:        Path to the device certificate (PEM).
         key_path:         Path to the device private key (PEM).
         root_ca:          Optional path to a custom root CA certificate.
                           When *None* the system trust store is used.
+        client_id:        MQTT client ID.  Defaults to *thing_name* but
+                          can be set independently to match the IoT
+                          policy (e.g. ``basicPubSub``).
         publish_interval: Only publish every *N*-th pose (1 = every).
         topic_prefix:     MQTT topic root.  Poses are published to
                           ``<prefix>/<thing_name>/trajectory``.
@@ -133,12 +136,14 @@ class AWSIoTPublisher:
         key_path: str,
         *,
         root_ca: Optional[str] = None,
+        client_id: Optional[str] = None,
         publish_interval: int = 5,
         topic_prefix: str = "robot",
         qos: int = 1,
     ) -> None:
         self._endpoint = endpoint
         self._thing_name = thing_name
+        self._client_id = client_id or thing_name
         self._root_ca = root_ca
         self._cert_path = cert_path
         self._key_path = key_path
@@ -213,7 +218,7 @@ class AWSIoTPublisher:
                 port=8883,
                 cert_filepath=self._cert_path,
                 pri_key_filepath=self._key_path,
-                client_id=self._thing_name,
+                client_id=self._client_id,
                 on_lifecycle_connection_success=_on_lifecycle_connection_success,
                 on_lifecycle_connection_failure=_on_lifecycle_connection_failure,
                 on_lifecycle_stopped=_on_lifecycle_stopped,

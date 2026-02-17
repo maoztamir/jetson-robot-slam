@@ -44,7 +44,8 @@ slam:
 aws:
   enabled: true                                        # [code] false to disable
   endpoint: aw4tyjjeoxel4-ats.iot.us-east-2.amazonaws.com  # [code] IoT data endpoint
-  thing_name: tele2-jetson                                # [code] MQTT client ID
+  thing_name: tele2-jetson                                # [code] device ID in payloads
+  client_id: basicPubSub                                  # [code] MQTT client ID (must match IoT policy)
   # root_ca: certs/root-CA.crt    # [code] optional -- system trust store used if omitted
   certificate: certs/tele2-jetson.cert.pem                # [code] device cert
   private_key: certs/tele2-jetson.private.key             # [code] device key
