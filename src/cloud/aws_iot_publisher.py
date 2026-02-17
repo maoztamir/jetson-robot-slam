@@ -271,7 +271,7 @@ class AWSIoTPublisher:
             except Exception:
                 logger.debug("Disconnect error", exc_info=True)
         self._connected = False
-        logger.info(
+        logger.debug(
             "Publisher stopped -- %d published, %d errors",
             self._publish_count, self._error_count,
         )
@@ -368,7 +368,7 @@ class AWSIoTPublisher:
         body = json.dumps(payload, separators=(",", ":"))
 
         if self._mock or not self._connected:
-            logger.info("[mock] Published to %s (device=%s)", topic, self._thing_name)
+            logger.debug("[mock] Published to %s (device=%s)", topic, self._thing_name)
             with self._lock:
                 self._publish_count += 1
             return True
