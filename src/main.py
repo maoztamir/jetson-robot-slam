@@ -411,15 +411,15 @@ def main() -> None:
             tracking_ok = pose is not None
             perf.tick_slam(tracking_ok)
 
-            # 4. Publish pose (throttled inside publisher).
+            # 4. Publish pose to AWS (only if connected) and save locally.
             if tracking_ok and publisher is not None:
-                sent = publisher.publish_pose(pose, ts)
-                if sent:
-                    payload = AWSIoTPublisher.build_pose_payload(
-                        pose, ts, cfg.get("aws", {}).get("thing_name", "jetson-robot-01"),
-                    )
-                    telem_file.write(json.dumps(payload) + "\n")
-                    telem_file.flush()
+                if publisher.is_connected:
+                    publisher.publish_pose(pose, ts)
+                payload = AWSIoTPublisher.build_pose_payload(
+                    pose, ts, cfg.get("aws", {}).get("thing_name", "jetson-robot-01"),
+                )
+                telem_file.write(json.dumps(payload) + "\n")
+                telem_file.flush()
 
             # 5. Optional visualisation.
             if visualize:
