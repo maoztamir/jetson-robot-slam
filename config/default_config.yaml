@@ -47,8 +47,8 @@ aws:
   thing_name: tele2-jetson                                # [code] device ID in payloads
   client_id: basicPubSub                                  # [code] MQTT client ID (must match IoT policy)
   # root_ca: certs/root-CA.crt    # [code] optional -- system trust store used if omitted
-  certificate: certs/certificate.pem.crt                   # [code] device cert
-  private_key: certs/private.pem.key                      # [code] device key
+  certificate: certs/tele2-jetson.cert.pem                  # [code] device cert
+  private_key: certs/tele2-jetson.private.key              # [code] device key
   publish_interval: 5          # [code] publish every Nth pose
   topic_prefix: robot          # [code] topic: <prefix>/<thing>/trajectory
 
