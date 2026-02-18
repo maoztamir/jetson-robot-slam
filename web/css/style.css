@@ -1,0 +1,253 @@
+/* ===== Reset & Base ===== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --text: #e0e0e0;
+  --text-muted: #888;
+  --accent: #00b4d8;
+  --green: #06d6a0;
+  --yellow: #ffd166;
+  --red: #ef476f;
+  --grey: #555;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ===== Header ===== */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--surface2);
+  flex-shrink: 0;
+}
+
+header h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#device-select {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--grey);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+#btn-refresh {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--grey);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+#btn-refresh:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* Connection status dot */
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.connected { background: var(--green); }
+.status-dot.disconnected { background: var(--red); }
+.status-dot.connecting { background: var(--yellow); }
+
+/* ===== Main Layout ===== */
+main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+#map-container {
+  flex: 1;
+  position: relative;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+/* ===== Sidebar ===== */
+#sidebar {
+  width: 260px;
+  background: var(--surface);
+  border-left: 1px solid var(--surface2);
+  overflow-y: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebar section {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--surface2);
+}
+
+#sidebar h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.05em;
+}
+
+/* ===== Sensor Panel ===== */
+.sensor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.sensor-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--bg);
+  border-radius: 4px;
+}
+
+.sensor-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--grey);
+  flex-shrink: 0;
+}
+
+.sensor-dot.ok { background: var(--green); }
+.sensor-dot.mock { background: var(--yellow); }
+.sensor-dot.error { background: var(--red); }
+.sensor-dot.na { background: var(--grey); }
+
+.sensor-label {
+  font-size: 0.85rem;
+}
+
+#status-timestamp {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.4rem;
+}
+
+/* ===== Session Panel ===== */
+#session-list {
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+#session-list li {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border-radius: 4px;
+  margin-bottom: 2px;
+}
+
+#session-list li:hover {
+  background: var(--surface2);
+}
+
+#session-list li.active {
+  background: var(--surface2);
+  border-left: 3px solid var(--accent);
+}
+
+/* ===== Stats Panel ===== */
+#stats-content {
+  font-size: 0.85rem;
+}
+
+#stats-content div {
+  margin-bottom: 0.3rem;
+}
+
+#stats-content span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ===== Responsive: Tablet / Mobile ===== */
+@media (max-width: 768px) {
+  main {
+    flex-direction: column;
+  }
+
+  #map-container {
+    height: 60vh;
+  }
+
+  #sidebar {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--surface2);
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow-y: auto;
+    max-height: 40vh;
+  }
+
+  #sidebar section {
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .sensor-grid {
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+  }
+}
+
+/* ===== Leaflet overrides for dark theme ===== */
+.leaflet-control-zoom a {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--grey) !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(26, 26, 46, 0.8) !important;
+  color: var(--text-muted) !important;
+  font-size: 0.65rem !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--accent) !important;
+}

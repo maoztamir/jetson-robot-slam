@@ -163,6 +163,7 @@ class AWSIoTPublisher:
         # Topics
         self._topic_trajectory = f"{topic_prefix}/{thing_name}/trajectory"
         self._topic_telemetry = f"{topic_prefix}/{thing_name}/telemetry"
+        self._topic_status = f"{topic_prefix}/{thing_name}/status"
 
     # ---------------------------------------------------------------- public
 
@@ -337,6 +338,24 @@ class AWSIoTPublisher:
 
         payload = self.build_pose_payload(pose_matrix, timestamp, self._thing_name)
         return self._publish(self._topic_trajectory, payload)
+
+    def publish_sensor_status(self, sensors: Dict[str, str]) -> bool:
+        """Publish sensor health status to the status topic.
+
+        Args:
+            sensors: Mapping of sensor name to status string.
+                     Expected keys: ``camera``, ``imu``, ``slam``, ``gps``.
+                     Values: ``"ok"``, ``"error"``, ``"mock"``, ``"n/a"``.
+
+        Returns:
+            ``True`` on success, ``False`` on failure.
+        """
+        payload = {
+            "device_id": self._thing_name,
+            "timestamp": round(time.time(), 4),
+            "sensors": sensors,
+        }
+        return self._publish(self._topic_status, payload)
 
     def publish_telemetry(self, data: Dict[str, Any]) -> bool:
         """Publish a free-form telemetry dict.

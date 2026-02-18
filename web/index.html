@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robot Trajectory Dashboard</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>Robot Trajectory</h1>
+    <div id="controls">
+      <select id="device-select">
+        <option value="">Loading devices...</option>
+      </select>
+      <button id="btn-refresh" title="Refresh sessions">&#8635;</button>
+      <span id="connection-status" class="status-dot disconnected"></span>
+    </div>
+  </header>
+
+  <main>
+    <div id="map-container">
+      <div id="map"></div>
+    </div>
+
+    <aside id="sidebar">
+      <section id="sensor-panel">
+        <h2>Sensor Status</h2>
+        <div class="sensor-grid">
+          <div class="sensor-item">
+            <span class="sensor-dot" id="sensor-camera"></span>
+            <span class="sensor-label">Camera</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-dot" id="sensor-imu"></span>
+            <span class="sensor-label">IMU</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-dot" id="sensor-slam"></span>
+            <span class="sensor-label">SLAM</span>
+          </div>
+          <div class="sensor-item">
+            <span class="sensor-dot" id="sensor-gps"></span>
+            <span class="sensor-label">GPS</span>
+          </div>
+        </div>
+        <div id="status-timestamp"></div>
+      </section>
+
+      <section id="session-panel">
+        <h2>Sessions</h2>
+        <ul id="session-list"></ul>
+      </section>
+
+      <section id="stats-panel">
+        <h2>Live Stats</h2>
+        <div id="stats-content">
+          <div>Points: <span id="stat-points">0</span></div>
+          <div>Last update: <span id="stat-last-update">--</span></div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+
+  <!-- AWS SDK v2 (includes CryptoJS for SigV4 signing) -->
+  <script src="https://cdn.jsdelivr.net/npm/aws-sdk@2.1692.0/dist/aws-sdk.min.js"></script>
+
+  <!-- Paho MQTT for WebSocket -->
+  <script src="https://cdn.jsdelivr.net/npm/paho-mqtt@1.1.0/paho-mqtt.min.js"></script>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

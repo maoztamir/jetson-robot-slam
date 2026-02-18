@@ -374,6 +374,32 @@ Resources:
                   - geo:GetDevicePositionHistory
                 Resource: !GetAtt LocationTracker.Arn
 
+              # DynamoDB read access for trajectory history.
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt TrajectoryTable.Arn
+
+              # IoT MQTT WebSocket for real-time updates.
+              - Effect: Allow
+                Action:
+                  - iot:Connect
+                Resource:
+                  - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:client/dashboard-*"
+              - Effect: Allow
+                Action:
+                  - iot:Subscribe
+                Resource:
+                  - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/robot/+/trajectory"
+                  - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/robot/+/status"
+              - Effect: Allow
+                Action:
+                  - iot:Receive
+                Resource:
+                  - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/robot/+/trajectory"
+                  - !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/robot/+/status"
+
   # Attach the unauth role to the identity pool.
   CognitoRoleAttachment:
     Type: AWS::Cognito::IdentityPoolRoleAttachment

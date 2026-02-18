@@ -391,6 +391,8 @@ def main() -> None:
 
     # ---- run loop -------------------------------------------------------- #
     visualize = args.visualize
+    last_status_publish = 0.0
+    _STATUS_INTERVAL = 10.0  # seconds between sensor status publishes
 
     try:
         while not shutdown:
@@ -413,11 +415,12 @@ def main() -> None:
             perf.tick_slam(tracking_ok)
 
             # 4. Publish pose to AWS (only if connected) and save locally.
-            if tracking_ok and publisher is not None:
-                if publisher.is_connected:
+            if tracking_ok:
+                thing_name = cfg.get("aws", {}).get("thing_name", "jetson-robot-01")
+                if publisher is not None and publisher.is_connected:
                     publisher.publish_pose(pose, ts)
                 payload = AWSIoTPublisher.build_pose_payload(
-                    pose, ts, cfg.get("aws", {}).get("thing_name", "jetson-robot-01"),
+                    pose, ts, thing_name,
                 )
                 telem_file.write(json.dumps(payload) + "\n")
                 telem_file.flush()
@@ -434,6 +437,35 @@ def main() -> None:
                 slam,
                 publisher,
             )
+
+            # 7. Periodic sensor status publish.
+            now = time.monotonic()
+            if now - last_status_publish >= _STATUS_INTERVAL:
+                imu_mock = (
+                    camera._imu_reader is not None
+                    and camera._imu_reader._mock
+                )
+                sensors = {
+                    "camera": "ok" if camera.is_running else "error",
+                    "imu": "mock" if imu_mock else "ok",
+                    "slam": "mock" if slam._mock else "ok",
+                    "gps": "n/a",
+                }
+                if publisher is not None:
+                    publisher.publish_sensor_status(sensors)
+                # Write sensor status locally for the dashboard server
+                status_payload = {
+                    "device_id": cfg.get("aws", {}).get("thing_name", "jetson-robot-01"),
+                    "timestamp": round(time.time(), 4),
+                    "sensors": sensors,
+                }
+                status_path = telem_path.parent / "sensor_status.json"
+                try:
+                    with open(status_path, "w") as sf:
+                        json.dump(status_payload, sf)
+                except OSError:
+                    logger.debug("Failed to write sensor_status.json")
+                last_status_publish = now
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt received")
