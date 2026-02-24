@@ -101,18 +101,37 @@ Exit and reboot when prompted.
 ### Set CPU governor to performance
 
 The RPi 5 has no GPU compute, so CPU throughput is critical for ORB_SLAM3.
+`cpufrequtils` is not packaged for Raspberry Pi OS Bookworm — use the direct sysfs approach instead.
 
 ```bash
-# Install cpufrequtils
-sudo apt install -y cpufrequtils
-
-# Set performance governor (takes effect immediately)
-echo 'GOVERNOR="performance"' | sudo tee /etc/default/cpufrequtils
-sudo systemctl restart cpufrequtils
+# Apply immediately (all four cores)
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 
 # Verify
 cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 # Expected output: performance
+```
+
+Make it persistent across reboots with a one-shot systemd service:
+
+```bash
+sudo tee /etc/systemd/system/cpu-performance.service > /dev/null << 'EOF'
+[Unit]
+Description=Set CPU governor to performance
+After=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable cpu-performance.service
+sudo systemctl start cpu-performance.service
 ```
 
 ### Expand the swap for building ORB_SLAM3
