@@ -14,9 +14,9 @@ Complete instructions for provisioning a Raspberry Pi 5 to run the stereo-inerti
 3. [First-boot configuration](#3-first-boot-configuration)
 4. [Enable I2C and verify the cameras](#4-enable-i2c-and-verify-the-cameras)
 5. [Install system packages](#5-install-system-packages)
-6. [Patch the camera pipeline for RPi 5](#6-patch-the-camera-pipeline-for-rpi-5)
-7. [Install ORB_SLAM3](#7-install-orb_slam3)
-8. [Clone the project](#8-clone-the-project)
+6. [Install ORB_SLAM3](#6-install-orb_slam3)
+7. [Clone the project](#7-clone-the-project)
+8. [Patch the camera pipeline for RPi 5](#8-patch-the-camera-pipeline-for-rpi-5)
 9. [Install Python dependencies](#9-install-python-dependencies)
 10. [Configure the project](#10-configure-the-project)
 11. [AWS IoT setup](#11-aws-iot-setup)
@@ -251,7 +251,79 @@ python3 -m pip install --upgrade pip
 
 ---
 
-## 6. Patch the camera pipeline for RPi 5
+## 6. Install ORB_SLAM3
+
+ORB_SLAM3 is optional — the pipeline runs in mock mode (synthetic figure-eight trajectory) if it is absent. Skip to section 7 for a quick cloud-pipeline test.
+
+> **Performance note:** The RPi 5 has no GPU. ORB_SLAM3 runs fully on the four Cortex-A76 cores. Set `slam.skip_frames: 3` in the config to process every 3rd frame and maintain real-time throughput at 30 fps input.
+
+### 6.1 Install build dependencies
+
+```bash
+sudo apt install -y \
+    libboost-all-dev \
+    libeigen3-dev \
+    libopencv-dev
+```
+
+Pangolin must be built from source (not in apt for Bookworm):
+
+```bash
+sudo apt install -y libglew-dev libpython3-dev ffmpeg libavcodec-dev \
+    libavutil-dev libavformat-dev libswscale-dev libavdevice-dev \
+    libjpeg-dev libpng-dev libtiff5-dev libopenexr-dev
+
+cd /tmp
+git clone --recursive https://github.com/stevenlovegrove/Pangolin.git
+cd Pangolin && mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j2        # -j2 avoids OOM on 4 GB boards
+sudo make install
+sudo ldconfig
+```
+
+### 6.2 Build ORB_SLAM3 (CPU only — no CUDA flag needed)
+
+```bash
+sudo mkdir -p /opt/ORB_SLAM3
+sudo chown $USER /opt/ORB_SLAM3
+
+git clone https://github.com/UZ-SLAMLab/ORB_SLAM3.git /opt/ORB_SLAM3
+cd /opt/ORB_SLAM3
+chmod +x build.sh
+./build.sh      # 40–60 minutes on RPi 5
+```
+
+> If the build runs out of memory, add `-j1` to the `make` calls inside `build.sh` and ensure the 8 GB swap is active (`free -h`).
+
+### 6.3 Build Python bindings
+
+```bash
+cd /opt/ORB_SLAM3
+pip3 install orbslam3   # community Python wrapper, if available
+```
+
+If bindings are unavailable the system falls back to mock mode automatically.
+
+### 6.4 Verify vocabulary file
+
+```bash
+ls /opt/ORB_SLAM3/Vocabulary/ORBvoc.txt
+```
+
+---
+
+## 7. Clone the project
+
+```bash
+cd ~
+git clone https://github.com/maoztamir/jetson-robot-slam.git jetson-robot-slam
+cd jetson-robot-slam
+```
+
+---
+
+## 8. Patch the camera pipeline for RPi 5
 
 This is the only code change required. The Jetson Nano uses `nvarguscamerasrc` (NVIDIA-specific GStreamer element). The RPi 5 uses `libcamerasrc` instead.
 
@@ -282,7 +354,7 @@ def build_gstreamer_pipeline(sensor_id, width, height, fps, flip_method):
     )
 ```
 
-> **Note:** `camera-name=cam0` and `camera-name=cam1` map to the physical CAM0 and CAM1 ports. If this does not work, run `libcamera-hello --list-cameras` to find the exact camera name strings and substitute them.
+> **Note:** `camera-name=cam0` and `camera-name=cam1` map to the physical CAM0 and CAM1 ports. If this does not work, run `rpicam-hello --list-cameras` to find the exact camera name strings and substitute them.
 
 ### Verify the patched pipeline with OpenCV
 
@@ -302,78 +374,6 @@ EOF
 ```
 
 Both cameras must print `Left camera OK: True (480, 640, 3)`.
-
----
-
-## 7. Install ORB_SLAM3
-
-ORB_SLAM3 is optional — the pipeline runs in mock mode (synthetic figure-eight trajectory) if it is absent. Skip to section 8 for a quick cloud-pipeline test.
-
-> **Performance note:** The RPi 5 has no GPU. ORB_SLAM3 runs fully on the four Cortex-A76 cores. Set `slam.skip_frames: 3` in the config to process every 3rd frame and maintain real-time throughput at 30 fps input.
-
-### 7.1 Install build dependencies
-
-```bash
-sudo apt install -y \
-    libboost-all-dev \
-    libeigen3-dev \
-    libopencv-dev
-```
-
-Pangolin must be built from source (not in apt for Bookworm):
-
-```bash
-sudo apt install -y libglew-dev libpython3-dev ffmpeg libavcodec-dev \
-    libavutil-dev libavformat-dev libswscale-dev libavdevice-dev \
-    libjpeg-dev libpng-dev libtiff5-dev libopenexr-dev
-
-cd /tmp
-git clone --recursive https://github.com/stevenlovegrove/Pangolin.git
-cd Pangolin && mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j2        # -j2 avoids OOM on 4 GB boards
-sudo make install
-sudo ldconfig
-```
-
-### 7.2 Build ORB_SLAM3 (CPU only — no CUDA flag needed)
-
-```bash
-sudo mkdir -p /opt/ORB_SLAM3
-sudo chown $USER /opt/ORB_SLAM3
-
-git clone https://github.com/UZ-SLAMLab/ORB_SLAM3.git /opt/ORB_SLAM3
-cd /opt/ORB_SLAM3
-chmod +x build.sh
-./build.sh      # 40–60 minutes on RPi 5
-```
-
-> If the build runs out of memory, add `-j1` to the `make` calls inside `build.sh` and ensure the 8 GB swap is active (`free -h`).
-
-### 7.3 Build Python bindings
-
-```bash
-cd /opt/ORB_SLAM3
-pip3 install orbslam3   # community Python wrapper, if available
-```
-
-If bindings are unavailable the system falls back to mock mode automatically.
-
-### 7.4 Verify vocabulary file
-
-```bash
-ls /opt/ORB_SLAM3/Vocabulary/ORBvoc.txt
-```
-
----
-
-## 8. Clone the project
-
-```bash
-cd ~
-git clone https://github.com/maoztamir/jetson-robot-slam.git jetson-robot-slam
-cd jetson-robot-slam
-```
 
 ---
 
@@ -541,7 +541,7 @@ INFO  camera_imu_handler: Left frame 640x480, right frame 640x480
 INFO  camera_imu_handler: IMU accel=(0.01, 0.02, 9.81) ...
 ```
 
-If both cameras fall back to mock mode, the `libcamerasrc` pipeline is not working — check section 6 and rerun the OpenCV pipeline test.
+If both cameras fall back to mock mode, the `libcamerasrc` pipeline is not working — check section 8 and rerun the OpenCV pipeline test.
 
 ### Check 3 — IMU
 
@@ -690,7 +690,7 @@ Then verify:
 gst-inspect-1.0 libcamerasrc
 ```
 
-### Only one camera appears in `libcamera-hello --list-cameras`
+### Only one camera appears in `rpicam-hello --list-cameras`
 
 - One ribbon cable may be backwards. Try flipping the insertion direction.
 - Check both CAM0 and CAM1 port latches are fully closed.
