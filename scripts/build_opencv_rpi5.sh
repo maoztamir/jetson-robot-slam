@@ -45,7 +45,7 @@ sudo apt-get install -y \
     libxvidcore-dev libx264-dev \
     libjpeg-dev libpng-dev libtiff-dev \
     libeigen3-dev \
-    libatlas-base-dev \
+    libopenblas-dev \
     gfortran \
     openexr \
     python3.8-dev
