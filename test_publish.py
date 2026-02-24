@@ -7,10 +7,10 @@ from awsiot import mqtt5_client_builder
 from awscrt import mqtt5
 
 ENDPOINT = "aw4tyjjeoxel4-ats.iot.us-east-2.amazonaws.com"
-CERT = "certs/tele2-jetson.cert.pem"
-KEY = "certs/tele2-jetson.private.key"
+CERT = "certs/tele3-jetson.cert.pem"
+KEY = "certs/tele3-jetson.private.key"
 CLIENT_ID = "basicPubSub"
-TOPIC = "robot/tele2-jetson/trajectory"
+TOPIC = "robot/tele3-jetson/trajectory"
 
 connected = threading.Event()
 stopped = threading.Event()
