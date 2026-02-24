@@ -8,21 +8,25 @@ set -e
 OPENCV_VERSION="4.10.0"
 BUILD_DIR="/tmp/opencv_build"
 
-# ── Locate Python 3.8 from pyenv ─────────────────────────────────────────────
-# Try pyenv first, then fall back to the versioned binary in pyenv's root
+# ── Locate Python 3.8 ────────────────────────────────────────────────────────
+# Prefer the active venv Python (has numpy + all deps installed).
+# Fall back to pyenv versioned binary, then system python3.8.
 PYENV_ROOT="${PYENV_ROOT:-$HOME/.pyenv}"
-PYTHON38=$(
-    "$PYENV_ROOT/versions/3.8.19/bin/python3.8" --version &>/dev/null \
-        && echo "$PYENV_ROOT/versions/3.8.19/bin/python3.8" \
-    || pyenv which python3.8 2>/dev/null \
-    || which python3.8
-)
+if [ -n "$VIRTUAL_ENV" ] && "$VIRTUAL_ENV/bin/python3" -c "import sys; assert sys.version_info[:2]==(3,8)" 2>/dev/null; then
+    PYTHON38="$VIRTUAL_ENV/bin/python3"
+elif "$PYENV_ROOT/versions/3.8.19/bin/python3.8" --version &>/dev/null; then
+    PYTHON38="$PYENV_ROOT/versions/3.8.19/bin/python3.8"
+else
+    PYTHON38=$(which python3.8)
+fi
 
-PYTHON38_PREFIX=$("$PYTHON38" -c "import sys; print(sys.prefix)")
-PYTHON38_INC=$("$PYTHON38" -c "from sysconfig import get_path; print(get_path('include'))")
-PYTHON38_LIB=$(find "$PYTHON38_PREFIX/lib" -name "libpython3.8*.so*" | head -1)
+# The C include dir and .so must come from the base pyenv install, not the venv
+PYBASE="$PYENV_ROOT/versions/3.8.19"
+PYTHON38_INC="$PYBASE/include/python3.8"
+PYTHON38_LIB=$(find "$PYBASE/lib" -name "libpython3.8*.so*" | head -1)
 NUMPY_INC=$("$PYTHON38" -c "import numpy; print(numpy.get_include())")
-SITE_PACKAGES=$("$PYTHON38" -c "from sysconfig import get_path; print(get_path('purelib'))")
+# Install cv2.so into the venv site-packages so it's importable after activation
+SITE_PACKAGES=$("$PYTHON38" -c "import site; print(site.getsitepackages()[0])")
 
 echo "Python  : $PYTHON38"
 echo "Include : $PYTHON38_INC"

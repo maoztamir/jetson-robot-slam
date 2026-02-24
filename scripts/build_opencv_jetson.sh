@@ -8,18 +8,19 @@ set -e
 OPENCV_VERSION="4.5.5"
 BUILD_DIR="/tmp/opencv_build"
 
-# ── Locate Python 3.8 from pyenv ─────────────────────────────────────────────
+# ── Locate Python 3.8 ────────────────────────────────────────────────────────
 PYENV_ROOT="${PYENV_ROOT:-$HOME/.pyenv}"
-PYTHON38=$(
-    "$PYENV_ROOT/versions/3.8.19/bin/python3.8" --version &>/dev/null \
-        && echo "$PYENV_ROOT/versions/3.8.19/bin/python3.8" \
-    || pyenv which python3.8 2>/dev/null \
-    || which python3.8
-)
+if [ -n "$VIRTUAL_ENV" ] && "$VIRTUAL_ENV/bin/python3" -c "import sys; assert sys.version_info[:2]==(3,8)" 2>/dev/null; then
+    PYTHON38="$VIRTUAL_ENV/bin/python3"
+elif "$PYENV_ROOT/versions/3.8.19/bin/python3.8" --version &>/dev/null; then
+    PYTHON38="$PYENV_ROOT/versions/3.8.19/bin/python3.8"
+else
+    PYTHON38=$(which python3.8)
+fi
 
-PYTHON38_PREFIX=$("$PYTHON38" -c "import sys; print(sys.prefix)")
-PYTHON38_INC=$("$PYTHON38" -c "from sysconfig import get_path; print(get_path('include'))")
-PYTHON38_LIB=$(find "$PYTHON38_PREFIX/lib" -name "libpython3.8*.so*" | head -1)
+PYBASE="$PYENV_ROOT/versions/3.8.19"
+PYTHON38_INC="$PYBASE/include/python3.8"
+PYTHON38_LIB=$(find "$PYBASE/lib" -name "libpython3.8*.so*" | head -1)
 NUMPY_INC=$("$PYTHON38" -c "import numpy; print(numpy.get_include())")
 
 echo "Python  : $PYTHON38"
@@ -66,7 +67,7 @@ cmake .. \
     -DPYTHON3_INCLUDE_DIR="$PYTHON38_INC" \
     -DPYTHON3_LIBRARY="$PYTHON38_LIB" \
     -DPYTHON3_NUMPY_INCLUDE_DIRS="$NUMPY_INC" \
-    -DOPENCV_PYTHON3_INSTALL_PATH="$PYTHON38_PREFIX/lib/python3.8/site-packages" \
+    -DOPENCV_PYTHON3_INSTALL_PATH="$($PYTHON38 -c 'import site; print(site.getsitepackages()[0])')" \
     -DBUILD_TESTS=OFF \
     -DBUILD_PERF_TESTS=OFF \
     -DBUILD_EXAMPLES=OFF \
