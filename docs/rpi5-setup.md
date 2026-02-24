@@ -230,7 +230,7 @@ sudo apt install -y \
     gstreamer1.0-libcamera \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxrender1 \
