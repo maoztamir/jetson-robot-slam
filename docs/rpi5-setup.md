@@ -169,11 +169,14 @@ Expected output (address `0x68` must appear):
 
 If `0x68` is absent, reseat both camera ribbon cables — the IMU is powered through the camera connector.
 
-### Verify the cameras with libcamera
+### Verify the cameras with rpicam-apps
+
+On Raspberry Pi OS Bookworm the camera tools are prefixed `rpicam-*`
+(the older `libcamera-*` names were retired in Bookworm).
 
 ```bash
 # List detected cameras — must show two IMX219 sensors
-libcamera-hello --list-cameras
+rpicam-hello --list-cameras
 ```
 
 Expected output:
@@ -189,17 +192,17 @@ Preview each camera individually (requires a connected monitor or VNC):
 
 ```bash
 # Left camera (CAM0)
-libcamera-hello --camera 0 -t 5000
+rpicam-hello --camera 0 -t 5000
 
 # Right camera (CAM1)
-libcamera-hello --camera 1 -t 5000
+rpicam-hello --camera 1 -t 5000
 ```
 
 Capture a test still from each:
 
 ```bash
-libcamera-jpeg --camera 0 -o /tmp/left_test.jpg
-libcamera-jpeg --camera 1 -o /tmp/right_test.jpg
+rpicam-jpeg --camera 0 -o /tmp/left_test.jpg
+rpicam-jpeg --camera 1 -o /tmp/right_test.jpg
 ```
 
 If only one camera is detected, reseat the ribbon cable on the failing port and reboot.
@@ -215,6 +218,7 @@ sudo apt install -y \
     python3-opencv \
     python3-picamera2 \
     python3-libcamera \
+    rpicam-apps \
     i2c-tools \
     libi2c-dev \
     cmake \
