@@ -9,12 +9,20 @@ OPENCV_VERSION="4.10.0"
 BUILD_DIR="/tmp/opencv_build"
 
 # ── Locate Python 3.8 from pyenv ─────────────────────────────────────────────
-PYTHON38=$(pyenv which python3.8 2>/dev/null || which python3.8)
-PYTHON38_PREFIX=$(python3.8 -c "import sys; print(sys.prefix)")
-PYTHON38_INC=$(python3.8 -c "from sysconfig import get_path; print(get_path('include'))")
+# Try pyenv first, then fall back to the versioned binary in pyenv's root
+PYENV_ROOT="${PYENV_ROOT:-$HOME/.pyenv}"
+PYTHON38=$(
+    "$PYENV_ROOT/versions/3.8.19/bin/python3.8" --version &>/dev/null \
+        && echo "$PYENV_ROOT/versions/3.8.19/bin/python3.8" \
+    || pyenv which python3.8 2>/dev/null \
+    || which python3.8
+)
+
+PYTHON38_PREFIX=$("$PYTHON38" -c "import sys; print(sys.prefix)")
+PYTHON38_INC=$("$PYTHON38" -c "from sysconfig import get_path; print(get_path('include'))")
 PYTHON38_LIB=$(find "$PYTHON38_PREFIX/lib" -name "libpython3.8*.so*" | head -1)
-NUMPY_INC=$(python3.8 -c "import numpy; print(numpy.get_include())")
-SITE_PACKAGES=$(python3.8 -c "from sysconfig import get_path; print(get_path('purelib'))")
+NUMPY_INC=$("$PYTHON38" -c "import numpy; print(numpy.get_include())")
+SITE_PACKAGES=$("$PYTHON38" -c "from sysconfig import get_path; print(get_path('purelib'))")
 
 echo "Python  : $PYTHON38"
 echo "Include : $PYTHON38_INC"
