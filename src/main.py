@@ -143,6 +143,10 @@ def _parse_args() -> argparse.Namespace:
         help="Path to local JSONL file for saving telemetry (default: telemetry/telemetry.jsonl)",
     )
     p.add_argument(
+        "--mock", action="store_true",
+        help="Run with synthetic camera and IMU data (no hardware required)",
+    )
+    p.add_argument(
         "--sim", action="store_true",
         help="Use Isaac Sim via ROS 2 instead of physical CSI camera / I2C IMU",
     )
@@ -247,7 +251,7 @@ def _get_rss_mb() -> float:
 # Component construction
 # ---------------------------------------------------------------------------
 
-def _build_camera(cfg: Dict[str, Any]) -> CameraIMUHandler:
+def _build_camera(cfg: Dict[str, Any], mock: bool = False) -> CameraIMUHandler:
     cam = cfg.get("camera", {})
     res = cam.get("resolution", [640, 480])
     return CameraIMUHandler(
@@ -256,6 +260,7 @@ def _build_camera(cfg: Dict[str, Any]) -> CameraIMUHandler:
         fps=cam.get("fps", 30),
         flip_method=cam.get("flip_method", 0),
         enable_imu=True,
+        mock=mock,
     )
 
 
@@ -395,7 +400,7 @@ def main() -> None:
             args.sim_imu_topic,
         )
     else:
-        camera = _build_camera(cfg)
+        camera = _build_camera(cfg, mock=args.mock)
     slam = _build_slam(cfg)
 
     publisher: Optional[AWSIoTPublisher] = None
@@ -497,7 +502,7 @@ def main() -> None:
                 )
                 is_sim = isinstance(camera, IsaacSimCameraIMUHandler)
                 sensors = {
-                    "camera": "sim" if is_sim else ("ok" if camera.is_running else "error"),
+                    "camera": "sim" if is_sim else ("mock" if camera._mock else ("ok" if camera.is_running else "error")),
                     "imu": "sim" if is_sim else ("mock" if imu_mock else "ok"),
                     "slam": "mock" if slam._mock else "ok",
                     "gps": "n/a",

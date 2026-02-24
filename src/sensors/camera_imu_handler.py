@@ -213,12 +213,14 @@ class CameraIMUHandler:
         frame_queue_size: int = 2,
         imu_queue_size: int = 10,
         enable_imu: bool = True,
+        mock: bool = False,
     ) -> None:
         self._width = width
         self._height = height
         self._fps = fps
         self._flip = flip_method
         self._enable_imu = enable_imu
+        self._mock = mock
 
         # Queues
         self._frame_q: Queue[StereoFrame] = Queue(maxsize=frame_queue_size)
@@ -324,7 +326,13 @@ class CameraIMUHandler:
             logger.warning("CameraIMUHandler already running")
             return
 
-        self._open_cameras()
+        if self._mock:
+            logger.warning(
+                "Camera mock mode active -- synthetic %dx%d frames at %d fps",
+                self._width, self._height, self._fps,
+            )
+        else:
+            self._open_cameras()
 
         if self._enable_imu:
             self._imu_reader = _IMUReader()
@@ -422,7 +430,19 @@ class CameraIMUHandler:
 
     def _camera_loop(self) -> None:
         """Grab synchronised stereo pairs and push to the frame queue."""
+        period = 1.0 / self._fps
         while self._running:
+            if self._mock:
+                left = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+                right = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+                ts = time.monotonic()
+                frame: StereoFrame = (left, right, ts)
+                with self._lock:
+                    self._latest_frame = frame
+                self._enqueue(self._frame_q, frame)
+                time.sleep(period)
+                continue
+
             ok_l, left = self._left_cap.read()
             ok_r, right = self._right_cap.read()
 
@@ -432,7 +452,7 @@ class CameraIMUHandler:
                 continue
 
             ts = time.monotonic()
-            frame: StereoFrame = (left, right, ts)
+            frame = (left, right, ts)
 
             with self._lock:
                 self._latest_frame = frame
