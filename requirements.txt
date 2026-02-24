@@ -1,0 +1,17 @@
+# Core
+numpy
+pyyaml
+
+# Sensors
+icm20948          # ICM-20948 IMU driver (Waveshare)
+smbus2            # I2C interface used by icm20948
+
+# AWS (optional — falls back to mock mode if absent)
+awsiotsdk         # AWS IoT Device SDK v2 (MQTT5 publisher)
+boto3             # DynamoDB / Lambda access (trajectory viewer, tests)
+
+# Trajectory viewer UI (run on a desktop machine, not required on Jetson)
+matplotlib
+
+# Tests
+pytest

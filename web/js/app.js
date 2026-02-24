@@ -33,6 +33,7 @@ let map;
 let credentials;
 let dynamodb;
 let mqttClient;
+let slamOnlyMode = false; // true when no GPS — uses blank grid map
 
 // Per-device state: { deviceId: { polyline, marker, points: [[lat,lng],...] } }
 const devices = {};
@@ -108,7 +109,13 @@ async function pollSensorStatus() {
     if (!data.device_id) return;
 
     const deviceId = data.device_id;
-    sensorStatus[deviceId] = data.sensors || {};
+    const sensors = data.sensors || {};
+    sensorStatus[deviceId] = sensors;
+
+    // If GPS is not active, switch to blank SLAM map
+    if (sensors.gps === "n/a" || sensors.gps === "error") {
+      if (!slamOnlyMode) switchToSlamMap();
+    }
 
     if (deviceId === activeDevice || !activeDevice) {
       updateSensorPanel(sensorStatus[deviceId]);
@@ -193,6 +200,55 @@ function initMap() {
     maxZoom: 22,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
+}
+
+/** Switch to a blank grid map for SLAM-only (no GPS) mode. */
+function switchToSlamMap() {
+  if (slamOnlyMode) return;
+  slamOnlyMode = true;
+
+  // Remove existing map and recreate with CRS.Simple (pixel coordinates)
+  const container = map.getContainer();
+  map.remove();
+
+  map = L.map(container, {
+    crs: L.CRS.Simple,
+    center: [0, 0],
+    zoom: 2,
+    zoomControl: true,
+  });
+
+  // Add a subtle grid background
+  const gridSize = 200; // metres
+  const gridLines = [];
+  for (let i = -gridSize; i <= gridSize; i += 10) {
+    gridLines.push(L.polyline([[i, -gridSize], [i, gridSize]], { color: "#333", weight: 0.5, opacity: 0.3 }));
+    gridLines.push(L.polyline([[-gridSize, i], [gridSize, i]], { color: "#333", weight: 0.5, opacity: 0.3 }));
+  }
+  const grid = L.layerGroup(gridLines).addTo(map);
+
+  // Add origin marker
+  L.circleMarker([0, 0], {
+    radius: 4,
+    color: "#666",
+    fillColor: "#666",
+    fillOpacity: 0.5,
+  }).addTo(map).bindTooltip("Origin (0,0)", { permanent: false });
+
+  // Re-add existing device layers
+  Object.keys(devices).forEach((id) => {
+    const dev = devices[id];
+    if (dev.points.length > 0) {
+      dev.polyline = L.polyline(dev.points, {
+        color: "#00b4d8", weight: 3, opacity: 0.8,
+      }).addTo(map);
+      dev.marker = L.circleMarker(dev.points[dev.points.length - 1], {
+        radius: 6, color: "#06d6a0", fillColor: "#06d6a0", fillOpacity: 1,
+      }).addTo(map);
+    }
+  });
+
+  console.log("Switched to SLAM-only blank grid map (no GPS)");
 }
 
 // ============================================================================
@@ -297,10 +353,21 @@ async function loadTrajectory(deviceId) {
       if (devices[deviceId].marker) map.removeLayer(devices[deviceId].marker);
     }
 
+    // Check first record for GPS data to decide map mode
+    if (result.Items.length > 0 && !result.Items[0].gps) {
+      if (!slamOnlyMode) switchToSlamMap();
+    }
+
     const points = result.Items.map((item) => {
       const pos = item.position.M;
       const x = parseFloat(pos.x.N);
       const y = parseFloat(pos.y.N);
+      // Use GPS coordinates if available
+      if (item.gps && item.gps.M) {
+        const lat = parseFloat(item.gps.M.lat.N);
+        const lon = parseFloat(item.gps.M.lon.N);
+        return [lat, lon];
+      }
       return slamToLatLng(x, y);
     });
 
@@ -534,7 +601,17 @@ function handleTrajectoryMessage(deviceId, payload) {
   const pos = payload.position;
   if (!pos) return;
 
-  const latLng = slamToLatLng(pos.x, pos.y);
+  // Check if this record has real GPS data
+  const hasGps = payload.gps && payload.gps.lat != null && payload.gps.lon != null;
+
+  let latLng;
+  if (hasGps) {
+    latLng = [payload.gps.lat, payload.gps.lon];
+  } else {
+    // No GPS — use SLAM coordinates directly on a blank grid
+    if (!slamOnlyMode) switchToSlamMap();
+    latLng = [pos.y, pos.x]; // SLAM y=north, x=east → [lat, lng] in CRS.Simple
+  }
 
   // Ensure device entry exists
   if (!devices[deviceId]) {
@@ -626,8 +703,12 @@ function clearSensorPanel() {
 // Helpers
 // ============================================================================
 
-/** Convert SLAM x/y (metres) to Leaflet [lat, lng]. */
+/** Convert SLAM x/y (metres) to Leaflet [lat, lng].
+ *  In SLAM-only mode (no GPS), returns raw [y, x] for CRS.Simple. */
 function slamToLatLng(x, y) {
+  if (slamOnlyMode) {
+    return [y, x];
+  }
   const lat = CONFIG.originLat + y / CONFIG.metresPerDegLat;
   const lng = CONFIG.originLon + x / CONFIG.metresPerDegLon;
   return [lat, lng];

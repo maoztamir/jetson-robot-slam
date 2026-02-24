@@ -6,17 +6,16 @@ function:
 
 1. Extracts the device ID and SLAM-frame (x, y) position from the
    stream image.
-2. Converts local SLAM metres into WGS-84 latitude/longitude using a
-   configurable GPS origin.
-3. Calls **AWS Location Service** ``BatchUpdateDevicePosition`` to
-   update the tracker, making the position available to the web
-   dashboard.
+2. If the record contains a ``gps`` field with real lat/lon, converts
+   and updates the **AWS Location Service** tracker.  Otherwise the
+   raw SLAM coordinates are left in DynamoDB for the web dashboard to
+   render on a blank grid map.
 
 Environment variables (set by CloudFormation)::
 
     TRACKER_NAME  -- Location Service tracker name
-    ORIGIN_LAT    -- GPS latitude of the SLAM origin  (degrees)
-    ORIGIN_LON    -- GPS longitude of the SLAM origin (degrees)
+    ORIGIN_LAT    -- GPS latitude of the SLAM origin  (degrees, fallback)
+    ORIGIN_LON    -- GPS longitude of the SLAM origin (degrees, fallback)
 
 DynamoDB stream record ``NewImage`` layout (DynamoDB JSON)::
 
@@ -25,6 +24,7 @@ DynamoDB stream record ``NewImage`` layout (DynamoDB JSON)::
       "timestamp":   {"N": "1234.5678"},
       "position":    {"M": {"x": {"N": "1.23"}, "y": {"N": "-0.45"}, "z": {"N": "0.0"}}},
       "orientation": {"M": {"w": {"N": "0.92"}, "x": {"N": "0.0"}, ...}},
+      "gps":         {"M": {"lat": {"N": "32.085"}, "lon": {"N": "34.782"}}},  // optional
       ...
     }
 """
@@ -118,15 +118,16 @@ def slam_to_gps(
 # ---------------------------------------------------------------------------
 
 def _extract_pose(image: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Extract device_id, timestamp, and position from a stream NewImage.
+    """Extract device_id, timestamp, position, and optional GPS from a stream NewImage.
 
     Args:
         image: The ``NewImage`` dict from the DynamoDB stream record
                (DynamoDB JSON with type descriptors).
 
     Returns:
-        A dict with ``device_id``, ``timestamp``, ``x``, ``y``, ``z``
-        or ``None`` if required fields are missing.
+        A dict with ``device_id``, ``timestamp``, ``x``, ``y``, ``z``,
+        and optionally ``gps_lat`` / ``gps_lon`` if the record contains
+        a ``gps`` field.  Returns ``None`` if required fields are missing.
     """
     try:
         device_id = image["device_id"]["S"]
@@ -135,13 +136,24 @@ def _extract_pose(image: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         x = float(pos["x"]["N"])
         y = float(pos["y"]["N"])
         z = float(pos["z"]["N"])
-        return {
+        result = {
             "device_id": device_id,
             "timestamp": timestamp,
             "x": x,
             "y": y,
             "z": z,
         }
+
+        # Check for real GPS coordinates in the record.
+        gps = image.get("gps", {}).get("M")
+        if gps:
+            gps_lat = gps.get("lat", {}).get("N")
+            gps_lon = gps.get("lon", {}).get("N")
+            if gps_lat is not None and gps_lon is not None:
+                result["gps_lat"] = float(gps_lat)
+                result["gps_lon"] = float(gps_lon)
+
+        return result
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("Skipping malformed record: %s", exc)
         return None
@@ -156,6 +168,11 @@ def _update_tracker(
 ) -> int:
     """Push a batch of positions to the Location Service tracker.
 
+    Only processes poses that have real GPS coordinates (``gps_lat`` and
+    ``gps_lon``).  Poses with SLAM-only coordinates are skipped — they
+    are already stored in DynamoDB for the web dashboard to render on a
+    blank grid map.
+
     Args:
         updates: List of dicts from ``_extract_pose``.
 
@@ -165,15 +182,16 @@ def _update_tracker(
     if not updates:
         return 0
 
-    # Build the Updates list for BatchUpdateDevicePosition.
-    # Each entry needs DeviceId, Position [lon, lat], and SampleTime.
+    # Only include poses that have real GPS data.
     entries = []
     for u in updates:
-        lon, lat = slam_to_gps(u["x"], u["y"], ORIGIN_LAT, ORIGIN_LON)
+        if "gps_lat" in u and "gps_lon" in u:
+            # Use real GPS coordinates directly.
+            lon, lat = u["gps_lon"], u["gps_lat"]
+        else:
+            # No GPS — skip Location Service update for this pose.
+            continue
 
-        # SampleTime must be an ISO-8601 string or a datetime.
-        # We convert the monotonic SLAM timestamp to a wall-clock
-        # approximation (good enough for the tracker).
         sample_time = time.strftime(
             "%Y-%m-%dT%H:%M:%SZ", time.gmtime(u["timestamp"]),
         )
@@ -183,6 +201,13 @@ def _update_tracker(
             "Position": [lon, lat],
             "SampleTime": sample_time,
         })
+
+    if not entries:
+        logger.info(
+            "No GPS data in batch (%d poses) -- skipping Location Service",
+            len(updates),
+        )
+        return 0
 
     try:
         response = location_client.batch_update_device_position(

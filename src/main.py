@@ -29,6 +29,7 @@ import numpy as np
 import yaml
 
 from src.sensors.camera_imu_handler import CameraIMUHandler, IMUSample
+from src.sensors.isaac_sim_handler import IsaacSimCameraIMUHandler
 from src.slam.orb_slam3_wrapper import ORBSLAM3Wrapper, TrackingState
 from src.cloud.aws_iot_publisher import AWSIoTPublisher
 
@@ -141,6 +142,22 @@ def _parse_args() -> argparse.Namespace:
         default="telemetry/telemetry.jsonl",
         help="Path to local JSONL file for saving telemetry (default: telemetry/telemetry.jsonl)",
     )
+    p.add_argument(
+        "--sim", action="store_true",
+        help="Use Isaac Sim via ROS 2 instead of physical CSI camera / I2C IMU",
+    )
+    p.add_argument(
+        "--sim-left-topic", default="/left/image_raw",
+        help="ROS 2 topic for left camera (sim mode only)",
+    )
+    p.add_argument(
+        "--sim-right-topic", default="/right/image_raw",
+        help="ROS 2 topic for right camera (sim mode only)",
+    )
+    p.add_argument(
+        "--sim-imu-topic", default="/imu",
+        help="ROS 2 topic for IMU (sim mode only)",
+    )
     return p.parse_args()
 
 
@@ -239,6 +256,26 @@ def _build_camera(cfg: Dict[str, Any]) -> CameraIMUHandler:
         fps=cam.get("fps", 30),
         flip_method=cam.get("flip_method", 0),
         enable_imu=True,
+    )
+
+
+def _build_sim_camera(
+    cfg: Dict[str, Any],
+    left_topic: str,
+    right_topic: str,
+    imu_topic: str,
+) -> IsaacSimCameraIMUHandler:
+    """Build an Isaac Sim handler using ROS 2 topic names from CLI args."""
+    cam = cfg.get("camera", {})
+    res = cam.get("resolution", [640, 480])
+    sim_cfg = cfg.get("isaac_sim", {})
+    return IsaacSimCameraIMUHandler(
+        left_topic=sim_cfg.get("left_topic", left_topic),
+        right_topic=sim_cfg.get("right_topic", right_topic),
+        imu_topic=sim_cfg.get("imu_topic", imu_topic),
+        width=res[0],
+        height=res[1],
+        sync_threshold=sim_cfg.get("sync_threshold_ms", 20) / 1000.0,
     )
 
 
@@ -345,7 +382,20 @@ def main() -> None:
     logger.info("Starting Jetson robot SLAM pipeline")
 
     # ---- build components ------------------------------------------------ #
-    camera = _build_camera(cfg)
+    if args.sim:
+        logger.info(
+            "Simulation mode -- using Isaac Sim via ROS 2  "
+            "(left=%s  right=%s  imu=%s)",
+            args.sim_left_topic, args.sim_right_topic, args.sim_imu_topic,
+        )
+        camera = _build_sim_camera(
+            cfg,
+            args.sim_left_topic,
+            args.sim_right_topic,
+            args.sim_imu_topic,
+        )
+    else:
+        camera = _build_camera(cfg)
     slam = _build_slam(cfg)
 
     publisher: Optional[AWSIoTPublisher] = None
@@ -445,9 +495,10 @@ def main() -> None:
                     camera._imu_reader is not None
                     and camera._imu_reader._mock
                 )
+                is_sim = isinstance(camera, IsaacSimCameraIMUHandler)
                 sensors = {
-                    "camera": "ok" if camera.is_running else "error",
-                    "imu": "mock" if imu_mock else "ok",
+                    "camera": "sim" if is_sim else ("ok" if camera.is_running else "error"),
+                    "imu": "sim" if is_sim else ("mock" if imu_mock else "ok"),
                     "slam": "mock" if slam._mock else "ok",
                     "gps": "n/a",
                 }
