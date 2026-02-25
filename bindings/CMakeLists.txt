@@ -35,17 +35,6 @@ message(STATUS "pybind11 include: ${PYBIND11_INCLUDE_DIR}")
 message(STATUS "Extension suffix: ${PYTHON_EXT_SUFFIX}")
 
 # ---------------------------------------------------------------------------
-# Stub Viewer.h -- placed in a directory that comes BEFORE the real ORB_SLAM3
-# includes so Pangolin GL headers are never pulled in during our build.
-# ---------------------------------------------------------------------------
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stub_include")
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/stub_viewer.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/stub_include/Viewer.h"
-    COPYONLY
-)
-
-# ---------------------------------------------------------------------------
 # Other dependencies
 # ---------------------------------------------------------------------------
 find_package(OpenCV REQUIRED)
@@ -54,7 +43,6 @@ find_package(Eigen3 REQUIRED)
 set(ORB_SLAM3_DIR /opt/ORB_SLAM3)
 
 include_directories(
-    "${CMAKE_CURRENT_BINARY_DIR}/stub_include" # stub Viewer.h must come FIRST
     ${PYTHON_INCLUDE_DIR}
     ${PYBIND11_INCLUDE_DIR}
     ${ORB_SLAM3_DIR}                          # needed for "Thirdparty/..." relative includes

@@ -17,6 +17,53 @@
  *              The Python wrapper inverts this to get Twc.
  */
 
+// ---------------------------------------------------------------------------
+// Block Pangolin-dependent ORB_SLAM3 headers BEFORE any ORB_SLAM3 includes.
+//
+// System.h pulls in Viewer.h, FrameDrawer.h and MapDrawer.h which all include
+// Pangolin GL headers that fail to compile without a full OpenGL/GLEW setup.
+// We never use the viewer (use_viewer=false), so we define their include guards
+// here and provide minimal stub class definitions that satisfy the type system.
+// ---------------------------------------------------------------------------
+#define VIEWER_H
+#define FRAMEDRAWER_H
+#define MAPDRAWER_H
+
+#include <opencv2/core/core.hpp>  // needed by the stub classes below
+
+namespace ORB_SLAM3 {
+    class Atlas;
+    class Tracking;
+    class FrameDrawer {
+    public:
+        FrameDrawer(Atlas*) {}
+        cv::Mat DrawFrame(float = 1.f) { return cv::Mat(); }
+        void Update(Tracking*) {}
+        cv::Mat mIm;
+    };
+    class MapDrawer {
+    public:
+        MapDrawer(Atlas*, const std::string&, void*) {}
+        void DrawMapPoints() {}
+        void DrawCurrentCamera(void*) {}
+        void SetCurrentCameraPose(const void*) {}
+    };
+    class Viewer {
+    public:
+        Viewer(void*, FrameDrawer*, MapDrawer*, Tracking*,
+               const std::string&, const std::string&) {}
+        void Run() {}
+        void RequestFinish() {}
+        void RequestStop() {}
+        bool isFinished() { return true; }
+        bool isStopped()  { return true; }
+        bool Stop()       { return true; }
+        void Release() {}
+        void SetTrackingPause() {}
+    };
+} // namespace ORB_SLAM3
+// ---------------------------------------------------------------------------
+
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
