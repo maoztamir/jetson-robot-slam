@@ -77,9 +77,11 @@ def build_gstreamer_pipeline(
         # CAM1 (right): identify by device path (i2c@80000 = CAM1 on RPi 5)
         name_prop = "" if sensor_id == 0 else f'camera-name="{rpi5_cam1_name}" '
         flip = "! videoflip method=rotate-180 " if flip_method == 2 else ""
+        # Request BGR directly so PiSP ISP outputs a processed frame.
+        # videoconvert is kept as a fallback in case the ISP produces RGB.
         return (
             f"libcamerasrc {name_prop}! "
-            f"video/x-raw, width={width}, height={height}, "
+            f"video/x-raw, format=BGR, width={width}, height={height}, "
             f"framerate={fps}/1 ! "
             f"videoconvert ! "
             f"video/x-raw, format=BGR ! "
@@ -395,9 +397,14 @@ class CameraIMUHandler:
             self._imu_thread = None
 
         if self._left_cap is not None:
+            # Set pipeline to NULL before release to avoid libcamerasrc segfault
+            if self._backend == "rpi5":
+                self._left_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             self._left_cap.release()
             self._left_cap = None
         if self._right_cap is not None:
+            if self._backend == "rpi5":
+                self._right_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             self._right_cap.release()
             self._right_cap = None
 
