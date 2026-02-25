@@ -41,6 +41,8 @@ echo "Python : $($PYTHON --version)"
 sudo apt-get install -y \
     libpython3.8-dev \
     libeigen3-dev \
+    libglew-dev \
+    libgl1-mesa-dev \
     build-essential
 
 # Python build deps -- pin pybind11 to 2.5.x which works with CMake 3.10

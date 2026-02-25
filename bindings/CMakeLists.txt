@@ -39,6 +39,8 @@ message(STATUS "Extension suffix: ${PYTHON_EXT_SUFFIX}")
 # ---------------------------------------------------------------------------
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(GLEW REQUIRED)
 
 set(ORB_SLAM3_DIR /opt/ORB_SLAM3)
 
@@ -53,6 +55,8 @@ include_directories(
     ${ORB_SLAM3_DIR}/Thirdparty/DBoW2/DBoW2
     ${OpenCV_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
+    ${OPENGL_INCLUDE_DIR}
+    ${GLEW_INCLUDE_DIRS}
 )
 
 # ---------------------------------------------------------------------------
@@ -73,6 +77,8 @@ target_compile_options(orbslam3 PRIVATE -fvisibility=hidden)
 target_link_libraries(orbslam3 PRIVATE
     ${ORB_SLAM3_DIR}/lib/libORB_SLAM3.so
     ${OpenCV_LIBS}
+    ${OPENGL_LIBRARIES}
+    ${GLEW_LIBRARIES}
 )
 
 # ---------------------------------------------------------------------------
