@@ -58,9 +58,7 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-PYBIND11_CMAKE=$($PYTHON -c "import pybind11, os; print(os.path.join(os.path.dirname(pybind11.__file__), 'share', 'cmake', 'pybind11'))")
-
-# Use cmake from pip (modern version) instead of system cmake 3.10
+# Use cmake from pip if available (modern), else fall back to system cmake
 CMAKE_BIN="$VENV/bin/cmake"
 if [ ! -x "$CMAKE_BIN" ]; then
     CMAKE_BIN="cmake"
@@ -69,8 +67,7 @@ echo "CMake  : $($CMAKE_BIN --version | head -1)"
 
 $CMAKE_BIN "$BINDINGS_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DPYTHON_EXECUTABLE="$PYTHON" \
-    -Dpybind11_DIR="$PYBIND11_CMAKE"
+    -DPYTHON_EXECUTABLE="$PYTHON"
 
 make -j3
 
