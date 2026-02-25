@@ -63,7 +63,7 @@ PYBIND11_CMAKE=$($PYTHON -m pybind11 --cmakedir)
 
 cmake "$BINDINGS_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DPython3_EXECUTABLE="$PYTHON" \
+    -DPYTHON_EXECUTABLE="$PYTHON" \
     -Dpybind11_DIR="$PYBIND11_CMAKE"
 
 make -j3

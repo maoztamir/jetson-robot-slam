@@ -1,22 +1,50 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.5)
 project(orbslam3_bindings CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_BUILD_TYPE Release)
 
 # ---------------------------------------------------------------------------
-# Python (use the active venv's interpreter)
+# Python -- use PYTHON_EXECUTABLE passed in from the build script so we
+# always target the active venv (Ubuntu 18.04 CMake lacks find_package(Python3))
 # ---------------------------------------------------------------------------
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-message(STATUS "Python: ${Python3_EXECUTABLE}")
+if(NOT DEFINED PYTHON_EXECUTABLE)
+    set(PYTHON_EXECUTABLE "python3")
+endif()
+message(STATUS "Python: ${PYTHON_EXECUTABLE}")
 
 # pybind11 from pip (installed in venv)
 execute_process(
-    COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmakedir
+    COMMAND "${PYTHON_EXECUTABLE}" -m pybind11 --cmakedir
     OUTPUT_VARIABLE pybind11_DIR
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 find_package(pybind11 REQUIRED)
+
+# Python include/lib via the venv interpreter
+execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" -c
+        "import sysconfig; print(sysconfig.get_path('include'))"
+    OUTPUT_VARIABLE PYTHON_INCLUDE_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" -c
+        "import sysconfig; print(sysconfig.get_config_var('LDLIBRARY'))"
+    OUTPUT_VARIABLE _pylib
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" -c
+        "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))"
+    OUTPUT_VARIABLE _pylibdir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+set(PYTHON_LIBRARY "${_pylibdir}/${_pylib}")
+message(STATUS "Python include: ${PYTHON_INCLUDE_DIR}")
+message(STATUS "Python library: ${PYTHON_LIBRARY}")
+
+include_directories(${PYTHON_INCLUDE_DIR})
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -56,7 +84,7 @@ set_target_properties(orbslam3 PROPERTIES
 # Install to venv site-packages
 # ---------------------------------------------------------------------------
 execute_process(
-    COMMAND "${Python3_EXECUTABLE}" -c "import site; print(site.getsitepackages()[0])"
+    COMMAND "${PYTHON_EXECUTABLE}" -c "import site; print(site.getsitepackages()[0])"
     OUTPUT_VARIABLE PYTHON_SITE_PACKAGES
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
