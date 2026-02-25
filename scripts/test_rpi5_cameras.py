@@ -16,44 +16,45 @@ FPS    = 30
 # Candidate pipelines to try in order.  libcamerasrc on RPi5 PiSP ISP can
 # output BGR, RGB, NV12 etc. depending on the libcamera / GStreamer version.
 PIPELINE_TEMPLATES = [
-    # Force BGR directly - skips videoconvert
+    # Recommended: let libcamerasrc pick format, constrain AFTER videoconvert
     (
-        "BGR-direct",
+        "auto-then-BGR",
         "libcamerasrc {name}! "
+        "videoconvert ! "
         "video/x-raw, format=BGR, width={w}, height={h}, framerate={fps}/1 ! "
-        "appsink sync=false drop=true"
+        "appsink sync=false drop=true max-buffers=1"
     ),
-    # RGB then convert
+    # Let libcamerasrc pick format+size, scale and convert after
     (
-        "RGB+convert",
+        "auto-scale-BGR",
         "libcamerasrc {name}! "
-        "video/x-raw, format=RGB, width={w}, height={h}, framerate={fps}/1 ! "
-        "videoconvert ! video/x-raw, format=BGR ! "
-        "appsink sync=false drop=true"
+        "videoconvert ! videoscale ! "
+        "video/x-raw, format=BGR, width={w}, height={h} ! "
+        "appsink sync=false drop=true max-buffers=1"
     ),
-    # NV12 then convert (common ISP output)
+    # Constrain only size on source (no format), convert after
     (
-        "NV12+convert",
-        "libcamerasrc {name}! "
-        "video/x-raw, format=NV12, width={w}, height={h}, framerate={fps}/1 ! "
-        "videoconvert ! video/x-raw, format=BGR ! "
-        "appsink sync=false drop=true"
-    ),
-    # BGRx then convert
-    (
-        "BGRx+convert",
-        "libcamerasrc {name}! "
-        "video/x-raw, format=BGRx, width={w}, height={h}, framerate={fps}/1 ! "
-        "videoconvert ! video/x-raw, format=BGR ! "
-        "appsink sync=false drop=true"
-    ),
-    # No format constraint - let libcamerasrc negotiate, convert at end
-    (
-        "auto+convert",
+        "size-then-BGR",
         "libcamerasrc {name}! "
         "video/x-raw, width={w}, height={h}, framerate={fps}/1 ! "
         "videoconvert ! video/x-raw, format=BGR ! "
-        "appsink sync=false drop=true"
+        "appsink sync=false drop=true max-buffers=1"
+    ),
+    # NV12 from source (common PiSP ISP output), convert after
+    (
+        "NV12-then-BGR",
+        "libcamerasrc {name}! "
+        "video/x-raw, format=NV12, width={w}, height={h}, framerate={fps}/1 ! "
+        "videoconvert ! video/x-raw, format=BGR ! "
+        "appsink sync=false drop=true max-buffers=1"
+    ),
+    # YUY2 from source, convert after
+    (
+        "YUY2-then-BGR",
+        "libcamerasrc {name}! "
+        "video/x-raw, format=YUY2, width={w}, height={h}, framerate={fps}/1 ! "
+        "videoconvert ! video/x-raw, format=BGR ! "
+        "appsink sync=false drop=true max-buffers=1"
     ),
 ]
 

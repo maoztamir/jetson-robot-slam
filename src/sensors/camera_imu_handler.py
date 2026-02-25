@@ -77,16 +77,15 @@ def build_gstreamer_pipeline(
         # CAM1 (right): identify by device path (i2c@80000 = CAM1 on RPi 5)
         name_prop = "" if sensor_id == 0 else f'camera-name="{rpi5_cam1_name}" '
         flip = "! videoflip method=rotate-180 " if flip_method == 2 else ""
-        # Request BGR directly so PiSP ISP outputs a processed frame.
-        # videoconvert is kept as a fallback in case the ISP produces RGB.
+        # Let libcamerasrc negotiate its native format, then convert and
+        # scale AFTER videoconvert so the PiSP ISP is not constrained.
         return (
             f"libcamerasrc {name_prop}! "
+            f"videoconvert ! "
             f"video/x-raw, format=BGR, width={width}, height={height}, "
             f"framerate={fps}/1 ! "
-            f"videoconvert ! "
-            f"video/x-raw, format=BGR ! "
             f"{flip}"
-            f"appsink sync=false drop=true"
+            f"appsink sync=false drop=true max-buffers=1"
         )
 
     # Default: Jetson Nano (nvarguscamerasrc + nvvidconv)
