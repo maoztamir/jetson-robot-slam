@@ -120,10 +120,11 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Jetson robot -- stereo-inertial SLAM with AWS IoT",
     )
+    _LOCAL_CONFIG = _PROJECT_ROOT / "config" / "local_config.yaml"
     p.add_argument(
         "--config",
-        default=str(_DEFAULT_CONFIG),
-        help="Path to YAML config (default: config/default_config.yaml)",
+        default=str(_LOCAL_CONFIG if _LOCAL_CONFIG.is_file() else _DEFAULT_CONFIG),
+        help="Path to YAML config (default: config/local_config.yaml if present, else default_config.yaml)",
     )
     p.add_argument(
         "--verbose", action="store_true",
