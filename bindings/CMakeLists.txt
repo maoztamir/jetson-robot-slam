@@ -45,10 +45,12 @@ set(ORB_SLAM3_DIR /opt/ORB_SLAM3)
 include_directories(
     ${PYTHON_INCLUDE_DIR}
     ${PYBIND11_INCLUDE_DIR}
+    ${ORB_SLAM3_DIR}                          # needed for "Thirdparty/..." relative includes
     ${ORB_SLAM3_DIR}/include
     ${ORB_SLAM3_DIR}/include/CameraModels
     ${ORB_SLAM3_DIR}/Thirdparty/Sophus
     ${ORB_SLAM3_DIR}/Thirdparty/DBoW2
+    ${ORB_SLAM3_DIR}/Thirdparty/DBoW2/DBoW2
     ${OpenCV_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
 )
