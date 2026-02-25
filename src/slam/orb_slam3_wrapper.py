@@ -235,6 +235,14 @@ class ORBSLAM3Wrapper:
             )
             self._slam = None
             self._mock = True
+        except Exception as exc:
+            logger.error(
+                "ORB_SLAM3 initialisation failed (%s: %s) -- "
+                "running MOCK backend (synthetic trajectory)",
+                type(exc).__name__, exc,
+            )
+            self._slam = None
+            self._mock = True
 
         self._state = TrackingState.INITIALIZING
         self._started = True
