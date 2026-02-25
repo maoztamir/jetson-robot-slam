@@ -43,6 +43,7 @@ find_package(Eigen3 REQUIRED)
 set(ORB_SLAM3_DIR /opt/ORB_SLAM3)
 
 include_directories(
+    "${CMAKE_CURRENT_SOURCE_DIR}/stub_pangolin"  # intercepts <pangolin/pangolin.h> before /usr/local/include
     ${PYTHON_INCLUDE_DIR}
     ${PYBIND11_INCLUDE_DIR}
     ${ORB_SLAM3_DIR}                          # needed for "Thirdparty/..." relative includes
