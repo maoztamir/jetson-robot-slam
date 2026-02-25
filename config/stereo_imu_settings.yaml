@@ -17,8 +17,8 @@ File.version: "1.0"
 # ---------------------------------------------------------------------------
 Camera.type: "PinHole"
 
-Camera1.fx: 330.0
-Camera1.fy: 330.0
+Camera1.fx: 460.0
+Camera1.fy: 460.0
 Camera1.cx: 320.0
 Camera1.cy: 240.0
 
@@ -32,8 +32,8 @@ Camera1.p2:  0.0000
 # ---------------------------------------------------------------------------
 # Camera 2 (right) -- pinhole model
 # ---------------------------------------------------------------------------
-Camera2.fx: 330.0
-Camera2.fy: 330.0
+Camera2.fx: 460.0
+Camera2.fy: 460.0
 Camera2.cx: 320.0
 Camera2.cy: 240.0
 
@@ -50,8 +50,8 @@ Camera.width:  640
 Camera.height: 480
 Camera.fps:    30
 
-# baseline (m) * fx = 0.083 * 330.0
-Camera.bf: 27.39
+# baseline (m) * fx = 0.083 * 460.0
+Camera.bf: 38.18
 
 # 0 = BGR (OpenCV default), 1 = RGB
 Camera.RGB: 0
