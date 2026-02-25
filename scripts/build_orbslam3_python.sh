@@ -41,11 +41,10 @@ echo "Python : $($PYTHON --version)"
 sudo apt-get install -y \
     libpython3.8-dev \
     libeigen3-dev \
-    cmake \
     build-essential
 
-# Python build deps
-pip install --quiet pybind11 numpy
+# Python build deps -- pin pybind11 to 2.5.x which works with CMake 3.10
+pip install --quiet "pybind11==2.5.0" numpy cmake
 
 # ---------------------------------------------------------------------------
 # Remove the broken pip stub (wrong arch .so)
@@ -61,7 +60,14 @@ cd "$BUILD_DIR"
 
 PYBIND11_CMAKE=$($PYTHON -m pybind11 --cmakedir)
 
-cmake "$BINDINGS_DIR" \
+# Use cmake from pip (modern version) instead of system cmake 3.10
+CMAKE_BIN="$VENV/bin/cmake"
+if [ ! -x "$CMAKE_BIN" ]; then
+    CMAKE_BIN="cmake"
+fi
+echo "CMake  : $($CMAKE_BIN --version | head -1)"
+
+$CMAKE_BIN "$BINDINGS_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DPYTHON_EXECUTABLE="$PYTHON" \
     -Dpybind11_DIR="$PYBIND11_CMAKE"
