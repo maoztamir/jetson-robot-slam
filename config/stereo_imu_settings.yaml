@@ -23,8 +23,11 @@ Camera1.cx: 320.0
 Camera1.cy: 240.0
 
 # Radial-tangential distortion coefficients: k1, k2, p1, p2
-Camera1.k1: -0.2800
-Camera1.k2:  0.0700
+# Zeroed until proper calibration is done -- non-zero values with wrong
+# intrinsics cause stereo rectification to produce degenerate (negative)
+# ROI sizes which crash OpenCV's setSize assertion.
+Camera1.k1:  0.0000
+Camera1.k2:  0.0000
 Camera1.p1:  0.0000
 Camera1.p2:  0.0000
 
@@ -36,16 +39,18 @@ Camera2.fy: 330.0
 Camera2.cx: 320.0
 Camera2.cy: 240.0
 
-Camera2.k1: -0.2800
-Camera2.k2:  0.0700
+Camera2.k1:  0.0000
+Camera2.k2:  0.0000
 Camera2.p1:  0.0000
 Camera2.p2:  0.0000
 
 # ---------------------------------------------------------------------------
 # Stereo geometry
 # ---------------------------------------------------------------------------
-Camera.width:  640
-Camera.height: 480
+Camera.width:   640
+Camera.height:  480
+Camera.newWidth:  640
+Camera.newHeight: 480
 Camera.fps:    30
 
 # baseline (m) * fx = 0.083 * 330.0
