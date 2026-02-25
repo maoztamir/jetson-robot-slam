@@ -78,6 +78,33 @@ namespace ORB_SLAM3 {
 namespace py = pybind11;
 
 // ---------------------------------------------------------------------------
+// ARM FPU workaround
+//
+// NumPy (and other libraries) set the flush-to-zero (FZ) bit in the ARM
+// floating-point control register (FPCR).  This causes subnormal floats to
+// be rounded to zero inside OpenCV, producing invalid intermediate results
+// (zero denominators, negative matrix sizes) that trigger assertions such as
+//   "s >= 0 in function 'setSize'"
+// in cv::stereoRectify and cv::initUndistortRectifyMap.
+//
+// Resetting the FZ bit before each ORB_SLAM3 entry point restores normal
+// IEEE 754 behaviour and lets the rectification and tracking code run
+// correctly even when called from a Python process that has set FZ.
+// ---------------------------------------------------------------------------
+#ifdef __aarch64__
+static inline void reset_arm_fpcr()
+{
+    uint64_t fpcr;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
+    fpcr &= ~(uint64_t)(1u << 24);   // clear FZ  (flush-to-zero, AArch64)
+    fpcr &= ~(uint64_t)(1u << 19);   // clear FZ16 (flush-to-zero, FP16)
+    __asm__ volatile("msr fpcr, %0" : : "r"(fpcr));
+}
+#else
+static inline void reset_arm_fpcr() {}   // no-op on x86 / other platforms
+#endif
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -123,6 +150,7 @@ PYBIND11_MODULE(orbslam3, m)
                          const std::string& settings,
                          ORB_SLAM3::System::eSensor sensor,
                          bool viewer) {
+            reset_arm_fpcr();
             return new ORB_SLAM3::System(vocab, settings, sensor, viewer);
         }),
         py::arg("vocab"),
@@ -136,6 +164,7 @@ PYBIND11_MODULE(orbslam3, m)
                py::array_t<uint8_t> left,
                py::array_t<uint8_t> right,
                double ts) {
+                reset_arm_fpcr();
                 cv::Mat l = numpy_to_mat(left);
                 cv::Mat r = numpy_to_mat(right);
                 Sophus::SE3f Tcw = self.TrackStereo(l, r, ts);
@@ -149,6 +178,7 @@ PYBIND11_MODULE(orbslam3, m)
                py::array_t<uint8_t> right,
                double ts,
                py::array_t<double> imu_arr) {
+                reset_arm_fpcr();
                 cv::Mat l = numpy_to_mat(left);
                 cv::Mat r = numpy_to_mat(right);
 
