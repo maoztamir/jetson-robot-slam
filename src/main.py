@@ -437,13 +437,17 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _on_signal)
 
     # ---- start ----------------------------------------------------------- #
+    # Initialise SLAM first: if the C++ System() constructor crashes it
+    # starts/leaks internal threads that corrupt the process.  Starting SLAM
+    # before the cameras ensures a clean fallback to mock mode without
+    # affecting GStreamer / Argus camera capture.
+    _init_slam_with_retry(slam)
+
     try:
         camera.start()
     except RuntimeError:
         logger.exception("Camera initialisation failed -- aborting")
         sys.exit(1)
-
-    _init_slam_with_retry(slam)
 
     if publisher is not None:
         publisher.connect()
