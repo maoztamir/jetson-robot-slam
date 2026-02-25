@@ -43,11 +43,12 @@ from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
+from queue import Empty
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.sensors.camera_imu_handler import CameraIMUHandler
+from src.sensors.camera_imu_handler import CameraIMUHandler, IMUSample
 from src.slam.orb_slam3_wrapper import ORBSLAM3Wrapper
 
 logger = logging.getLogger("recorder")
@@ -163,6 +164,87 @@ class _TrajectoryMap:
 
 
 # ---------------------------------------------------------------------------
+# IMU panel (shown when SLAM is unavailable or mode is imu_only)
+# ---------------------------------------------------------------------------
+
+class _IMUPanel:
+    """Right-side panel displaying live IMU accelerometer and gyroscope bars.
+
+    Shown in place of the trajectory map when SLAM is not tracking or when
+    running in ``--mode imu_only``.
+    """
+
+    _BAR_MAX_ACCEL = 20.0   # m/s²  (±2 g)
+    _BAR_MAX_GYRO  = 3.0    # rad/s
+
+    _CHANNELS: List[Tuple[str, str, float, Tuple[int, int, int]]] = [
+        ("accel_x", "accel_x", _BAR_MAX_ACCEL, (80,  80,  220)),
+        ("accel_y", "accel_y", _BAR_MAX_ACCEL, (80,  150, 220)),
+        ("accel_z", "accel_z", _BAR_MAX_ACCEL, (80,  220, 220)),
+        ("gyro_x",  "gyro_x",  _BAR_MAX_GYRO,  (220, 80,  80)),
+        ("gyro_y",  "gyro_y",  _BAR_MAX_GYRO,  (220, 150, 80)),
+        ("gyro_z",  "gyro_z",  _BAR_MAX_GYRO,  (220, 220, 80)),
+    ]
+
+    def __init__(self) -> None:
+        self._latest: Optional[IMUSample] = None
+        self._sample_count: int = 0
+
+    def update(self, imu_sample: Optional[IMUSample]) -> None:
+        """Store the most recent IMU sample for rendering."""
+        if imu_sample is not None:
+            self._latest = imu_sample
+            self._sample_count += 1
+
+    def render(self, state: str, mode: str) -> np.ndarray:
+        canvas = np.zeros((_MAP_H, _MAP_W, 3), dtype=np.uint8)
+
+        header_color = (0, 165, 255) if mode == "imu_only" else (0, 100, 200)
+        cv2.putText(canvas, "IMU DATA", (8, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, header_color, 2)
+        status = "imu_only mode" if mode == "imu_only" else f"SLAM {state}"
+        cv2.putText(canvas, status, (8, 52),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 160), 1)
+
+        if self._latest is None:
+            cv2.putText(canvas, "waiting for IMU data...", (8, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 80, 80), 1)
+            return canvas
+
+        bar_x0, bar_mid, bar_x1 = 120, 270, 420
+        bar_h = 22
+
+        for i, (label, key, max_val, color) in enumerate(self._CHANNELS):
+            y_top = 80 + i * 60
+            val = float(self._latest.get(key, 0.0))
+
+            # label + numeric value
+            cv2.putText(canvas, f"{label}: {val:+.3f}", (8, y_top + 16),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+
+            # bar background
+            cv2.rectangle(canvas, (bar_x0, y_top), (bar_x1, y_top + bar_h),
+                          (40, 40, 40), -1)
+            # centre marker
+            cv2.line(canvas, (bar_mid, y_top - 2), (bar_mid, y_top + bar_h + 2),
+                     (80, 80, 80), 1)
+
+            # filled bar
+            ratio = max(-1.0, min(1.0, val / max_val))
+            if ratio >= 0:
+                x1, x2 = bar_mid, bar_mid + int(ratio * (bar_x1 - bar_mid))
+            else:
+                x1, x2 = bar_mid + int(ratio * (bar_mid - bar_x0)), bar_mid
+            if x1 != x2:
+                cv2.rectangle(canvas, (x1, y_top), (x2, y_top + bar_h), color, -1)
+
+        cv2.putText(canvas, f"samples: {self._sample_count}",
+                    (8, _MAP_H - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.4, (80, 80, 80), 1)
+        return canvas
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -180,6 +262,12 @@ def _parse_args() -> argparse.Namespace:
                    help="Use synthetic cameras (no hardware required)")
     p.add_argument("--no-slam", action="store_true",
                    help="Skip SLAM; record camera feed + features only")
+    p.add_argument("--mode", choices=["slam_imu", "imu_only"], default=None,
+                   help=(
+                       "slam_imu: run SLAM and show IMU panel when tracking fails; "
+                       "imu_only: skip SLAM entirely and always show IMU panel. "
+                       "Defaults to slam_imu, or imu_only when --no-slam is set."
+                   ))
     p.add_argument("--vocab",
                    default="/opt/ORB_SLAM3/Vocabulary/ORBvoc.txt")
     p.add_argument("--settings",
@@ -200,9 +288,17 @@ def main() -> None:
         out_path = _PROJECT_ROOT / out_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Resolve effective mode (--no-slam implies imu_only for backwards compat)
+    if args.mode is not None:
+        mode = args.mode
+    elif args.no_slam:
+        mode = "imu_only"
+    else:
+        mode = "slam_imu"
+
     # -- SLAM init (before cameras to avoid leaked-thread corruption) -------
     slam: Optional[ORBSLAM3Wrapper] = None
-    if not args.no_slam:
+    if mode != "imu_only":
         slam = ORBSLAM3Wrapper(
             vocab_path=args.vocab,
             settings_path=args.settings,
@@ -210,14 +306,15 @@ def main() -> None:
         )
         slam.initialise()
         backend = "MOCK" if slam._mock else "ORB_SLAM3"
-        logger.info("SLAM backend: %s", backend)
+        logger.info("SLAM backend: %s  mode=%s", backend, mode)
     else:
         backend = "NONE"
+        logger.info("Mode: imu_only — SLAM disabled")
 
     # -- Camera -------------------------------------------------------------
     camera = CameraIMUHandler(
         width=_CAM_W, height=_CAM_H, fps=30,
-        enable_imu=False,
+        enable_imu=True,
         mock=args.mock,
     )
     camera.start()
@@ -236,6 +333,7 @@ def main() -> None:
     logger.info("Press Ctrl-C to stop.")
 
     traj = _TrajectoryMap()
+    imu_panel = _IMUPanel()
     t_start = time.monotonic()
     frames_written = 0
     fps_counter = 0
@@ -253,13 +351,25 @@ def main() -> None:
                 continue
             left, right, ts = frame
 
+            # -- Drain IMU queue -------------------------------------------
+            latest_imu: Optional[IMUSample] = None
+            for _ in range(20):
+                try:
+                    latest_imu = camera.imu_queue.get_nowait()
+                except Empty:
+                    break
+
             # -- SLAM -------------------------------------------------------
-            state_name = "NO_SLAM"
+            pose = None
+            state_name = "DISABLED"
             if slam is not None:
                 pose = slam.process_frame(left, right, ts)
                 state_name = slam.state.name
                 map_pts = slam.get_map_points() if not slam._mock else None
                 traj.update(pose, map_pts)
+
+            # -- Update IMU panel (always collect, shown when SLAM fails) --
+            imu_panel.update(latest_imu)
 
             # -- Feature visualisation on left image -----------------------
             left_vis = _draw_keypoints(left)
@@ -278,9 +388,14 @@ def main() -> None:
             cv2.putText(left_vis, "LEFT + ORB keypoints", (10, 24),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 0), 1)
 
+            # -- Right panel: trajectory map (SLAM active) or IMU data ----
+            if mode == "slam_imu" and pose is not None:
+                right_vis = traj.render(state_name, backend)
+            else:
+                right_vis = imu_panel.render(state_name, mode)
+
             # -- Compose and write -----------------------------------------
-            traj_vis = traj.render(state_name, backend)
-            output_frame = np.hstack([left_vis, traj_vis])
+            output_frame = np.hstack([left_vis, right_vis])
             writer.write(output_frame)
             frames_written += 1
 

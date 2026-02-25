@@ -157,6 +157,15 @@ def _parse_args() -> argparse.Namespace:
         help="Run with synthetic camera and IMU data (no hardware required)",
     )
     p.add_argument(
+        "--mode",
+        choices=["slam_imu", "imu_only"],
+        default="slam_imu",
+        help=(
+            "slam_imu (default): run SLAM and fall back to IMU-only when tracking fails; "
+            "imu_only: skip SLAM entirely and publish only IMU data"
+        ),
+    )
+    p.add_argument(
         "--sim", action="store_true",
         help="Use Isaac Sim via ROS 2 instead of physical CSI camera / I2C IMU",
     )
@@ -208,7 +217,7 @@ class _PerfMonitor:
         self,
         cam_qsize: int,
         imu_qsize: int,
-        slam: ORBSLAM3Wrapper,
+        slam: Optional[ORBSLAM3Wrapper],
         publisher: Optional[AWSIoTPublisher],
     ) -> None:
         """Emit a log line if *interval* seconds have elapsed."""
@@ -226,8 +235,13 @@ class _PerfMonitor:
 
         parts = [
             f"fps={fps:.1f}",
-            f"slam={slam_pct:.0f}%({self._slam_ok}/{slam_total})",
-            f"state={slam.state.name}",
+        ]
+        if slam is not None:
+            parts.append(f"slam={slam_pct:.0f}%({self._slam_ok}/{slam_total})")
+            parts.append(f"state={slam.state.name}")
+        else:
+            parts.append("slam=disabled")
+        parts += [
             f"cam_q={cam_qsize}",
             f"imu_q={imu_qsize}",
             f"mem={mem_mb:.0f}MB",
@@ -416,7 +430,12 @@ def main() -> None:
         )
     else:
         camera = _build_camera(cfg, mock=args.mock)
-    slam = _build_slam(cfg)
+
+    slam: Optional[ORBSLAM3Wrapper] = None
+    if args.mode != "imu_only":
+        slam = _build_slam(cfg)
+    else:
+        logger.info("Mode: imu_only — SLAM disabled, publishing IMU data only")
 
     publisher: Optional[AWSIoTPublisher] = None
     aws_cfg = cfg.get("aws", {})
@@ -450,7 +469,8 @@ def main() -> None:
     # starts/leaks internal threads that corrupt the process.  Starting SLAM
     # before the cameras ensures a clean fallback to mock mode without
     # affecting GStreamer / Argus camera capture.
-    _init_slam_with_retry(slam)
+    if slam is not None:
+        _init_slam_with_retry(slam)
 
     try:
         camera.start()
@@ -480,17 +500,20 @@ def main() -> None:
             # 2. Collect recent IMU measurements.
             imu_batch = _drain_imu(camera, max_samples=10)
 
-            # 3. Process through SLAM.
-            pose = slam.process_frame(
-                left, right, ts,
-                imu_batch if imu_batch else None,
-            )
+            # 3. Process through SLAM (skipped in imu_only mode).
+            pose = None
+            if slam is not None:
+                pose = slam.process_frame(
+                    left, right, ts,
+                    imu_batch if imu_batch else None,
+                )
             tracking_ok = pose is not None
-            perf.tick_slam(tracking_ok)
+            if slam is not None:
+                perf.tick_slam(tracking_ok)
 
-            # 4. Publish pose to AWS (only if connected) and save locally.
+            # 4. Publish to AWS (only if connected) and save locally.
+            thing_name = cfg.get("aws", {}).get("thing_name", "jetson-robot-01")
             if tracking_ok:
-                thing_name = cfg.get("aws", {}).get("thing_name", "jetson-robot-01")
                 if publisher is not None and publisher.is_connected:
                     publisher.publish_pose(pose, ts)
                 payload = AWSIoTPublisher.build_pose_payload(
@@ -498,10 +521,21 @@ def main() -> None:
                 )
                 telem_file.write(json.dumps(payload) + "\n")
                 telem_file.flush()
+            elif imu_batch:
+                # SLAM unavailable or disabled — publish IMU-only data.
+                logger.debug("SLAM unavailable — publishing IMU-only data")
+                if publisher is not None and publisher.is_connected:
+                    publisher.publish_imu(imu_batch, ts)
+                payload = AWSIoTPublisher.build_imu_payload(
+                    imu_batch, ts, thing_name,
+                )
+                telem_file.write(json.dumps(payload) + "\n")
+                telem_file.flush()
 
             # 5. Optional visualisation.
             if visualize:
-                if not _show_stereo(left, right, slam.state):
+                state = slam.state if slam is not None else TrackingState.LOST
+                if not _show_stereo(left, right, state):
                     shutdown = True
 
             # 6. Periodic performance report.
@@ -523,7 +557,7 @@ def main() -> None:
                 sensors = {
                     "camera": "sim" if is_sim else ("mock" if camera._mock else ("ok" if camera.is_running else "error")),
                     "imu": "sim" if is_sim else ("mock" if imu_mock else "ok"),
-                    "slam": "mock" if slam._mock else "ok",
+                    "slam": "disabled" if slam is None else ("mock" if slam._mock else "ok"),
                     "gps": "n/a",
                 }
                 if publisher is not None:
@@ -550,9 +584,10 @@ def main() -> None:
         logger.info("Shutting down...")
         camera.stop()
 
-        traj_path = str(_PROJECT_ROOT / "trajectory.txt")
-        slam.save_trajectory(traj_path)
-        slam.shutdown()
+        if slam is not None:
+            traj_path = str(_PROJECT_ROOT / "trajectory.txt")
+            slam.save_trajectory(traj_path)
+            slam.shutdown()
 
         if publisher is not None:
             publisher.disconnect()

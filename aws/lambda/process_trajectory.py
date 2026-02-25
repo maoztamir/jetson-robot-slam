@@ -117,6 +117,12 @@ def slam_to_gps(
 # DynamoDB stream record parsing
 # ---------------------------------------------------------------------------
 
+def _is_imu_only(image: Dict[str, Any]) -> bool:
+    """Return True if this record was published in IMU-only mode (no pose)."""
+    record_type = image.get("type", {})
+    return record_type.get("S", "") == "imu_only"
+
+
 def _extract_pose(image: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Extract device_id, timestamp, position, and optional GPS from a stream NewImage.
 
@@ -129,6 +135,16 @@ def _extract_pose(image: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         and optionally ``gps_lat`` / ``gps_lon`` if the record contains
         a ``gps`` field.  Returns ``None`` if required fields are missing.
     """
+    # IMU-only records have no position — skip Location Service update silently.
+    if _is_imu_only(image):
+        device_id = image.get("device_id", {}).get("S", "unknown")
+        timestamp = image.get("timestamp", {}).get("N", "?")
+        logger.debug(
+            "IMU-only record device=%s ts=%s — stored in DynamoDB, skipping tracker",
+            device_id, timestamp,
+        )
+        return None
+
     try:
         device_id = image["device_id"]["S"]
         timestamp = float(image["timestamp"]["N"])

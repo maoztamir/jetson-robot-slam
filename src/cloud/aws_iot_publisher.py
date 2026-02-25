@@ -162,6 +162,7 @@ class AWSIoTPublisher:
 
         # Topics
         self._topic_trajectory = f"{topic_prefix}/{thing_name}/trajectory"
+        self._topic_imu = f"{topic_prefix}/{thing_name}/imu"
         self._topic_telemetry = f"{topic_prefix}/{thing_name}/telemetry"
         self._topic_status = f"{topic_prefix}/{thing_name}/status"
 
@@ -278,6 +279,54 @@ class AWSIoTPublisher:
         )
 
     # -- publishing -------------------------------------------------------- #
+
+    @staticmethod
+    def build_imu_payload(
+        imu_samples: list,
+        timestamp: float,
+        thing_name: str,
+    ) -> dict:
+        """Build an IMU-only payload dict from a list of IMU samples.
+
+        Used when SLAM is unavailable so at least inertial data is published.
+
+        Args:
+            imu_samples: List of IMUSample dicts (keys: timestamp,
+                         accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z).
+            timestamp:   Frame timestamp (monotonic).
+            thing_name:  Device / thing identifier.
+
+        Returns:
+            Dict with ``timestamp``, ``device_id``, ``type``, and ``imu`` keys.
+        """
+        return {
+            "timestamp": round(float(timestamp), 4),
+            "device_id": thing_name,
+            "type": "imu_only",
+            "imu": [
+                {k: round(float(v), 6) for k, v in s.items()}
+                for s in imu_samples
+            ],
+        }
+
+    def publish_imu(
+        self,
+        imu_samples: list,
+        timestamp: float,
+    ) -> bool:
+        """Publish IMU-only data to the imu topic.
+
+        Called when SLAM is unavailable so inertial data still reaches AWS.
+
+        Args:
+            imu_samples: List of IMUSample dicts.
+            timestamp:   Frame timestamp (monotonic).
+
+        Returns:
+            ``True`` if published, ``False`` on failure.
+        """
+        payload = self.build_imu_payload(imu_samples, timestamp, self._thing_name)
+        return self._publish(self._topic_imu, payload)
 
     @staticmethod
     def build_pose_payload(
