@@ -16,7 +16,7 @@ FPS    = 30
 # Candidate pipelines to try in order.  libcamerasrc on RPi5 PiSP ISP can
 # output BGR, RGB, NV12 etc. depending on the libcamera / GStreamer version.
 PIPELINE_TEMPLATES = [
-    # Force BGR directly — skips videoconvert
+    # Force BGR directly - skips videoconvert
     (
         "BGR-direct",
         "libcamerasrc {name}! "
@@ -47,7 +47,7 @@ PIPELINE_TEMPLATES = [
         "videoconvert ! video/x-raw, format=BGR ! "
         "appsink sync=false drop=true"
     ),
-    # No format constraint — let libcamerasrc negotiate, convert at end
+    # No format constraint - let libcamerasrc negotiate, convert at end
     (
         "auto+convert",
         "libcamerasrc {name}! "
@@ -62,14 +62,14 @@ def try_pipeline(label, pipeline):
     print(f"  [{label}]  {pipeline}")
     cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
     if not cap.isOpened():
-        print(f"  [{label}]  FAIL — could not open pipeline")
+        print(f"  [{label}]  FAIL - could not open pipeline")
         return False
     ok, frame = cap.read()
     cap.release()
     if ok and frame is not None:
-        print(f"  [{label}]  PASS — frame shape: {frame.shape}")
+        print(f"  [{label}]  PASS - frame shape:{frame.shape}")
         return True
-    print(f"  [{label}]  FAIL — cap.read() returned False")
+    print(f"  [{label}]  FAIL - cap.read() returned False")
     return False
 
 
