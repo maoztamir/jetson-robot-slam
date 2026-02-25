@@ -79,9 +79,12 @@ make -j3
 sudo make install
 
 # ---------------------------------------------------------------------------
-# Register libORB_SLAM3.so so the OS can find it at runtime
+# Register all ORB_SLAM3 shared libraries so the OS can find them at runtime
 # ---------------------------------------------------------------------------
-echo "/opt/ORB_SLAM3/lib" | sudo tee /etc/ld.so.conf.d/orbslam3.conf > /dev/null
+{
+    echo "/opt/ORB_SLAM3/lib"
+    find /opt/ORB_SLAM3/Thirdparty -name "*.so" -exec dirname {} \; 2>/dev/null | sort -u
+} | sudo tee /etc/ld.so.conf.d/orbslam3.conf > /dev/null
 sudo ldconfig
 
 # ---------------------------------------------------------------------------
