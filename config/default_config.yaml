@@ -37,6 +37,7 @@ imu:
 slam:
   vocab_path: /opt/ORB_SLAM3/Vocabulary/ORBvoc.txt   # [code] ORB vocabulary
   settings_path: config/stereo_imu_settings.yaml      # [code] SLAM YAML
+  use_imu: false               # [code] true=STEREO_INERTIAL (needs ICM-20948 on I2C), false=STEREO
   skip_frames: 1               # [code] process every Nth frame (1=all)
   max_trajectory_points: 1000  # [code] pose buffer size (older poses evicted)
 

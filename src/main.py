@@ -295,7 +295,7 @@ def _build_slam(cfg: Dict[str, Any]) -> ORBSLAM3Wrapper:
     return ORBSLAM3Wrapper(
         vocab_path=s.get("vocab_path", "/opt/ORB_SLAM3/Vocabulary/ORBvoc.txt"),
         settings_path=s.get("settings_path", "config/stereo_imu_settings.yaml"),
-        use_imu=True,
+        use_imu=s.get("use_imu", False),
         trajectory_maxlen=s.get("max_trajectory_points", 1000),
         frame_skip=s.get("skip_frames", 1),
     )
