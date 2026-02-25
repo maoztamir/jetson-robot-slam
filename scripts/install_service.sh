@@ -54,11 +54,11 @@ Type=simple
 User=${CURRENT_USER}
 WorkingDirectory=${PROJECT_ROOT}
 Environment=ROBOT_VENV=${VENV_PATH}
-ExecStart=${SCRIPT_DIR}/start_robot.sh
+ExecStart=/bin/bash ${SCRIPT_DIR}/start_robot.sh
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:${PROJECT_ROOT}/logs/service.log
-StandardError=append:${PROJECT_ROOT}/logs/service.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
