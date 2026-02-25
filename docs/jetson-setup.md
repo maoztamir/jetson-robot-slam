@@ -549,36 +549,21 @@ python3 scripts/trajectory_viewer.py --region us-east-2 --table RobotTrajectory
 
 ## 13. Autostart on boot (optional)
 
-Create a systemd service so the pipeline starts automatically when the Jetson powers on.
+Run the installer script once to register a systemd service that starts the pipeline on every boot:
 
 ```bash
-sudo tee /etc/systemd/system/jetson-slam.service > /dev/null << 'EOF'
-[Unit]
-Description=Jetson Robot SLAM pipeline
-After=network.target
-
-[Service]
-Type=simple
-User=maoz
-WorkingDirectory=/home/maoz/jetson-robot-slam
-ExecStart=/usr/bin/python3 -m src.main --config config/local_config.yaml
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable jetson-slam.service
-sudo systemctl start jetson-slam.service
-
-# Check status
-sudo systemctl status jetson-slam.service
-journalctl -u jetson-slam.service -f
+bash scripts/install_service.sh
 ```
+
+Then start it immediately without rebooting:
+
+```bash
+sudo systemctl start robot-slam
+sudo systemctl status robot-slam
+journalctl -u robot-slam -f
+```
+
+See [docs/autostart.md](autostart.md) for full details, log locations, and troubleshooting.
 
 ---
 
