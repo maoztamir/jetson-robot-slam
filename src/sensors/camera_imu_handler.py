@@ -52,23 +52,42 @@ def build_gstreamer_pipeline(
     height: int,
     fps: int,
     flip_method: int,
+    backend: str = "jetson",
+    rpi5_cam1_name: str = "/base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10",
 ) -> str:
-    """Build an nvarguscamerasrc GStreamer pipeline string.
-
-    The pipeline captures at the sensor's native 1280x720, runs through the
-    Jetson hardware video converter (``nvvidconv``) to rescale and colour-
-    convert, then hands the frame to OpenCV via ``appsink``.
+    """Build a GStreamer pipeline string for the given backend.
 
     Args:
-        sensor_id: CSI sensor index (0 = left, 1 = right on IMX219-83).
-        width:     Desired output width in pixels.
-        height:    Desired output height in pixels.
-        fps:       Capture frame-rate.
-        flip_method: ``nvvidconv`` flip method (0 = none, 2 = rotate-180).
+        sensor_id:      CSI sensor index (0 = left, 1 = right).
+        width:          Desired output width in pixels.
+        height:         Desired output height in pixels.
+        fps:            Capture frame-rate.
+        flip_method:    Flip method (0 = none, 2 = rotate-180).
+        backend:        ``"jetson"`` (nvarguscamerasrc) or ``"rpi5"``
+                        (libcamerasrc).
+        rpi5_cam1_name: Full libcamera device path for the right (CAM1)
+                        camera on RPi 5.  CAM0 uses the default (first
+                        camera detected by libcamera).
 
     Returns:
         A GStreamer launch string suitable for ``cv2.VideoCapture``.
     """
+    if backend == "rpi5":
+        # CAM0 (left): omit camera-name so libcamera picks the first sensor
+        # CAM1 (right): identify by device path (i2c@80000 = CAM1 on RPi 5)
+        name_prop = "" if sensor_id == 0 else f'camera-name="{rpi5_cam1_name}" '
+        flip = "! videoflip method=rotate-180 " if flip_method == 2 else ""
+        return (
+            f"libcamerasrc {name_prop}! "
+            f"video/x-raw, width={width}, height={height}, "
+            f"framerate={fps}/1 ! "
+            f"videoconvert ! "
+            f"video/x-raw, format=BGR ! "
+            f"{flip}"
+            f"appsink sync=false drop=true"
+        )
+
+    # Default: Jetson Nano (nvarguscamerasrc + nvvidconv)
     return (
         f"nvarguscamerasrc sensor-id={sensor_id} ! "
         f"video/x-raw(memory:NVMM), width=1280, height=720, "
@@ -214,6 +233,8 @@ class CameraIMUHandler:
         imu_queue_size: int = 10,
         enable_imu: bool = True,
         mock: bool = False,
+        backend: str = "jetson",
+        rpi5_cam1_name: str = "/base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10",
     ) -> None:
         self._width = width
         self._height = height
@@ -221,6 +242,8 @@ class CameraIMUHandler:
         self._flip = flip_method
         self._enable_imu = enable_imu
         self._mock = mock
+        self._backend = backend
+        self._rpi5_cam1_name = rpi5_cam1_name
 
         # Queues
         self._frame_q: Queue[StereoFrame] = Queue(maxsize=frame_queue_size)
@@ -390,26 +413,38 @@ class CameraIMUHandler:
         """Create GStreamer-backed VideoCapture objects for both sensors."""
         left_pipe = build_gstreamer_pipeline(
             0, self._width, self._height, self._fps, self._flip,
+            self._backend, self._rpi5_cam1_name,
         )
         right_pipe = build_gstreamer_pipeline(
             1, self._width, self._height, self._fps, self._flip,
+            self._backend, self._rpi5_cam1_name,
         )
 
         self._left_cap = cv2.VideoCapture(left_pipe, cv2.CAP_GSTREAMER)
         self._right_cap = cv2.VideoCapture(right_pipe, cv2.CAP_GSTREAMER)
 
         if not self._left_cap.isOpened():
+            hint = (
+                "gst-launch-1.0 libcamerasrc ! fakesink"
+                if self._backend == "rpi5"
+                else "gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! fakesink"
+            )
             raise RuntimeError(
-                "Failed to open LEFT camera (sensor-id=0). "
-                "Verify CSI connection: "
-                "gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! fakesink"
+                f"Failed to open LEFT camera (sensor-id=0, backend={self._backend}). "
+                f"Pipeline used: {left_pipe}\n"
+                f"Verify with: {hint}"
             )
         if not self._right_cap.isOpened():
             self._left_cap.release()
+            hint = (
+                f"gst-launch-1.0 libcamerasrc camera-name=\"{self._rpi5_cam1_name}\" ! fakesink"
+                if self._backend == "rpi5"
+                else "gst-launch-1.0 nvarguscamerasrc sensor-id=1 ! fakesink"
+            )
             raise RuntimeError(
-                "Failed to open RIGHT camera (sensor-id=1). "
-                "Verify CSI connection: "
-                "gst-launch-1.0 nvarguscamerasrc sensor-id=1 ! fakesink"
+                f"Failed to open RIGHT camera (sensor-id=1, backend={self._backend}). "
+                f"Pipeline used: {right_pipe}\n"
+                f"Verify with: {hint}"
             )
 
     # -- capture loops ----------------------------------------------------- #

@@ -17,7 +17,9 @@ camera:
   fps: 30                      # [code] capture frame-rate
   camera_id_left: 0            # [ref]  CSI sensor index for left lens
   camera_id_right: 1           # [ref]  CSI sensor index for right lens
-  flip_method: 0               # [code] nvvidconv flip (0=none, 2=rotate-180)
+  flip_method: 0               # [code] flip method (0=none, 2=rotate-180)
+  backend: jetson              # [code] jetson (nvarguscamerasrc) | rpi5 (libcamerasrc)
+  # rpi5_cam1_name: /base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10  # [code] rpi5 only
 
 # ---------------------------------------------------------------------------
 # 2. IMU (MPU-6050 / MPU-9250 on the camera module)

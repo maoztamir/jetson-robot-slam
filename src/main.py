@@ -261,6 +261,11 @@ def _build_camera(cfg: Dict[str, Any], mock: bool = False) -> CameraIMUHandler:
         flip_method=cam.get("flip_method", 0),
         enable_imu=True,
         mock=mock,
+        backend=cam.get("backend", "jetson"),
+        rpi5_cam1_name=cam.get(
+            "rpi5_cam1_name",
+            "/base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10",
+        ),
     )
 
 
