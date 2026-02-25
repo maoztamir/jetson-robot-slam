@@ -33,14 +33,16 @@ Typical usage::
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import logging
 import math
+import os
 import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Deque, Dict, Generator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -48,6 +50,27 @@ logger = logging.getLogger(__name__)
 
 # Type alias — matches ``src.sensors.camera_imu_handler.IMUSample``.
 IMUSample = Dict[str, float]
+
+
+@contextlib.contextmanager
+def _suppress_cpp_stdout() -> Generator[None, None, None]:
+    """Redirect fd 1 (stdout) to /dev/null for the duration of the block.
+
+    ORB_SLAM3's C++ code writes diagnostic noise directly to std::cout
+    (e.g. "LM: Active map reset", "TRACK_REF_KF: Less than 15 matches").
+    These bypass Python's logging system and pollute the console.
+    Redirecting the underlying file descriptor silences them without
+    affecting Python's ``sys.stdout``.
+    """
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    saved_fd = os.dup(1)
+    try:
+        os.dup2(devnull_fd, 1)
+        yield
+    finally:
+        os.dup2(saved_fd, 1)
+        os.close(saved_fd)
+        os.close(devnull_fd)
 
 
 # ---------------------------------------------------------------------------
@@ -401,9 +424,10 @@ class ORBSLAM3Wrapper:
             orbslam3.Sensor.STEREO_INERTIAL if self._use_imu
             else orbslam3.Sensor.STEREO
         )
-        self._slam = orbslam3.System(
-            str(vocab), str(settings), sensor, use_viewer=False,
-        )
+        with _suppress_cpp_stdout():
+            self._slam = orbslam3.System(
+                str(vocab), str(settings), sensor, use_viewer=False,
+            )
 
     # -- real backend ------------------------------------------------------ #
 
@@ -416,15 +440,16 @@ class ORBSLAM3Wrapper:
     ) -> Optional[np.ndarray]:
         """Run a frame through the real ORB_SLAM3 pipeline."""
         try:
-            if self._use_imu and imu_samples:
-                imu_arr = self._imu_samples_to_array(imu_samples)
-                Tcw = self._slam.process_image_stereo_inertial(
-                    left, right, timestamp, imu_arr,
-                )
-            else:
-                Tcw = self._slam.process_image_stereo(
-                    left, right, timestamp,
-                )
+            with _suppress_cpp_stdout():
+                if self._use_imu and imu_samples:
+                    imu_arr = self._imu_samples_to_array(imu_samples)
+                    Tcw = self._slam.process_image_stereo_inertial(
+                        left, right, timestamp, imu_arr,
+                    )
+                else:
+                    Tcw = self._slam.process_image_stereo(
+                        left, right, timestamp,
+                    )
 
             state = self._slam.get_tracking_state()
             if Tcw is None or state != _ORB_OK:
