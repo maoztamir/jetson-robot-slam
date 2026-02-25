@@ -13,7 +13,7 @@
 # 1. Stereo camera (IMX219-83)
 # ---------------------------------------------------------------------------
 camera:
-  resolution: [640, 480]       # [code] capture width × height in pixels
+  resolution: [640, 480]       # [code] capture width x height in pixels
   fps: 30                      # [code] capture frame-rate
   camera_id_left: 0            # [ref]  CSI sensor index for left lens
   camera_id_right: 1           # [ref]  CSI sensor index for right lens
@@ -25,8 +25,8 @@ camera:
 imu:
   i2c_bus: 1                   # [ref]  Linux I2C bus number (/dev/i2c-1)
   i2c_address: 0x68            # [ref]  7-bit I2C address
-  accel_scale: 16384.0         # [ref]  LSB/g   (±2 g full-scale)
-  gyro_scale: 131.0            # [ref]  LSB/°/s (±250 °/s full-scale)
+  accel_scale: 16384.0         # [ref]  LSB/g   (+/-2 g full-scale)
+  gyro_scale: 131.0            # [ref]  LSB/deg/s (+/-250 deg/s full-scale)
   sample_rate_hz: 100          # [ref]  target poll rate in the IMU thread
 
 # ---------------------------------------------------------------------------
