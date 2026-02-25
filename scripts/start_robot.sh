@@ -9,13 +9,23 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_ROOT"
 
-# Activate virtual environment (venv38 created during setup)
-VENV="$HOME/venv38"
+# Activate virtual environment.
+# ROBOT_VENV is set by the systemd service (baked in at install time by
+# install_service.sh).  When running manually, fall back to venv38 or test38.
+if [ -z "$ROBOT_VENV" ]; then
+    if [ -d "$HOME/venv38" ]; then
+        ROBOT_VENV="$HOME/venv38"
+    elif [ -d "$HOME/test38" ]; then
+        ROBOT_VENV="$HOME/test38"
+    fi
+fi
+VENV="${ROBOT_VENV}"
 if [ -f "$VENV/bin/activate" ]; then
     # shellcheck disable=SC1091
     source "$VENV/bin/activate"
+    echo "[$(date)] Using venv: $VENV"
 else
-    echo "WARNING: venv38 not found at $VENV, using system Python" >&2
+    echo "WARNING: venv not found at $VENV, using system Python" >&2
 fi
 
 # Use local_config.yaml if present, otherwise fall back to default
