@@ -58,7 +58,7 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-PYBIND11_CMAKE=$($PYTHON -m pybind11 --cmakedir)
+PYBIND11_CMAKE=$($PYTHON -c "import pybind11; print(pybind11.get_cmake_dir())")
 
 # Use cmake from pip (modern version) instead of system cmake 3.10
 CMAKE_BIN="$VENV/bin/cmake"
