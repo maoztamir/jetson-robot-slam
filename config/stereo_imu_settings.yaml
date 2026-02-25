@@ -23,8 +23,11 @@ Camera1.cx: 320.0
 Camera1.cy: 240.0
 
 # Radial-tangential distortion coefficients: k1, k2, k3, p1, p2
-Camera1.k1: -0.2800
-Camera1.k2:  0.0700
+# Set to zero until proper calibration is done with kalibr / stereoCalibrate.
+# Non-zero distortion triggers an ARM floating-point bug in cv::stereoRectify
+# on Jetson (OpenCV 4.5.5 aarch64) causing a setSize assertion failure.
+Camera1.k1:  0.0000
+Camera1.k2:  0.0000
 Camera1.k3:  0.0000
 Camera1.p1:  0.0000
 Camera1.p2:  0.0000
@@ -37,8 +40,8 @@ Camera2.fy: 460.0
 Camera2.cx: 320.0
 Camera2.cy: 240.0
 
-Camera2.k1: -0.2800
-Camera2.k2:  0.0700
+Camera2.k1:  0.0000
+Camera2.k2:  0.0000
 Camera2.k3:  0.0000
 Camera2.p1:  0.0000
 Camera2.p2:  0.0000
