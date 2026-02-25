@@ -92,7 +92,7 @@ def check_track(vocab: str, settings: str, mock: bool) -> bool:
             return False
 
         left, right, ts = frame
-        pose = slam.track_stereo(left, right, ts)
+        pose = slam.process_image_stereo(left, right, ts)
         slam.shutdown()
 
         if pose is not None:
