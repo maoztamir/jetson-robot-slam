@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# Preload libgomp before any other import to avoid aarch64 TLS allocation error.
+import ctypes, ctypes.util  # noqa: E401
+for _lib in ("/usr/lib/aarch64-linux-gnu/libgomp.so.1", "gomp"):
+    try:
+        ctypes.CDLL(_lib, mode=ctypes.RTLD_GLOBAL)
+        break
+    except OSError:
+        pass
+
 """Stereo SLAM visualiser / recorder.
 
 Records a video showing whether SLAM is actually tracking:
