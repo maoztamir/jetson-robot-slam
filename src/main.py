@@ -23,6 +23,7 @@ for _lib in ("/usr/lib/aarch64-linux-gnu/libgomp.so.1", "gomp"):
         pass
 
 import argparse
+import datetime
 import json
 import logging
 import math
@@ -151,8 +152,12 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--telemetry-file",
-        default="telemetry/telemetry.jsonl",
-        help="Path to local JSONL file for saving telemetry (default: telemetry/telemetry.jsonl)",
+        default="",
+        help=(
+            "Path to local JSONL file for saving telemetry. "
+            "Defaults to telemetry/{device_id}_{YYYY-MM-DDTHH-MM-SS}.jsonl "
+            "(one file per run, named by device and start time)."
+        ),
     )
     p.add_argument(
         "--mock", action="store_true",
@@ -495,6 +500,10 @@ def main() -> None:
     perf = _PerfMonitor(interval=perf_interval)
 
     # ---- telemetry file -------------------------------------------------- #
+    if not args.telemetry_file:
+        thing_name = cfg.get("aws", {}).get("thing_name", "robot")
+        run_ts = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        args.telemetry_file = f"telemetry/{thing_name}_{run_ts}.jsonl"
     telem_path = Path(args.telemetry_file)
     if not telem_path.is_absolute():
         telem_path = _PROJECT_ROOT / telem_path
