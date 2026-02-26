@@ -37,6 +37,11 @@ message(STATUS "Extension suffix: ${PYTHON_EXT_SUFFIX}")
 # ---------------------------------------------------------------------------
 # Other dependencies
 # ---------------------------------------------------------------------------
+# Force OpenCV 4.1 (system) so we match the version libORB_SLAM3.so was
+# compiled against.  Using a different OpenCV version (e.g. 4.5.5 in
+# /usr/local/lib) causes both to load simultaneously with incompatible ABIs
+# (cv::_OutputArray layout differs), crashing inside cvtColor.
+set(OpenCV_DIR "/usr/lib/aarch64-linux-gnu/cmake/opencv4")
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 

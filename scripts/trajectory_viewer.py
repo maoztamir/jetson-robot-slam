@@ -99,7 +99,12 @@ def extract_latlon(item: dict, prefer_gps: bool = True) -> Optional[Tuple[float,
             return _to_float(gps["lat"]), _to_float(gps["lon"])
 
         pos = item.get("position", {})
-        if "x" in pos and "y" in pos:
+        record_type = item.get("type", "")
+        if record_type == "imu_only":
+            # IMU dead-reckoning: x=east, z=forward(north) — y is always 0
+            if "x" in pos and "z" in pos:
+                return slam_to_latlon(_to_float(pos["x"]), _to_float(pos["z"]))
+        elif "x" in pos and "y" in pos:
             return slam_to_latlon(_to_float(pos["x"]), _to_float(pos["y"]))
     except (TypeError, ValueError, KeyError):
         pass

@@ -305,7 +305,16 @@ def main() -> None:
             use_imu=False,
         )
         slam.initialise()
-        backend = "MOCK" if slam._mock else "ORB_SLAM3"
+        if slam._mock:
+            logger.warning(
+                "SLAM unavailable (bindings missing or init failed) -- "
+                "disabling SLAM, recording IMU panel only"
+            )
+            slam = None
+            backend = "NONE"
+            mode = "imu_only"
+        else:
+            backend = "ORB_SLAM3"
         logger.info("SLAM backend: %s  mode=%s", backend, mode)
     else:
         backend = "NONE"
@@ -396,6 +405,7 @@ def main() -> None:
 
             # -- Compose and write -----------------------------------------
             output_frame = np.hstack([left_vis, right_vis])
+
             writer.write(output_frame)
             frames_written += 1
 

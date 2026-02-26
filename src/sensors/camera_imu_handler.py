@@ -233,6 +233,7 @@ class CameraIMUHandler:
         frame_queue_size: int = 2,
         imu_queue_size: int = 10,
         enable_imu: bool = True,
+        enable_stereo: bool = True,
         mock: bool = False,
         backend: str = "jetson",
         rpi5_cam1_name: str = "/base/axi/pcie@1000120000/rp1/i2c@80000/imx219@10",
@@ -242,6 +243,7 @@ class CameraIMUHandler:
         self._fps = fps
         self._flip = flip_method
         self._enable_imu = enable_imu
+        self._enable_stereo = enable_stereo
         self._mock = mock
         self._backend = backend
         self._rpi5_cam1_name = rpi5_cam1_name
@@ -350,13 +352,14 @@ class CameraIMUHandler:
             logger.warning("CameraIMUHandler already running")
             return
 
-        if self._mock:
-            logger.warning(
-                "Camera mock mode active -- synthetic %dx%d frames at %d fps",
-                self._width, self._height, self._fps,
-            )
-        else:
-            self._open_cameras()
+        if self._enable_stereo:
+            if self._mock:
+                logger.warning(
+                    "Camera mock mode active -- synthetic %dx%d frames at %d fps",
+                    self._width, self._height, self._fps,
+                )
+            else:
+                self._open_cameras()
 
         if self._enable_imu:
             self._imu_reader = _IMUReader()
@@ -364,10 +367,11 @@ class CameraIMUHandler:
 
         self._running = True
 
-        self._cam_thread = threading.Thread(
-            target=self._camera_loop, daemon=True, name="stereo-capture",
-        )
-        self._cam_thread.start()
+        if self._enable_stereo:
+            self._cam_thread = threading.Thread(
+                target=self._camera_loop, daemon=True, name="stereo-capture",
+            )
+            self._cam_thread.start()
 
         if self._enable_imu:
             self._imu_thread = threading.Thread(
@@ -488,7 +492,7 @@ class CameraIMUHandler:
             ok_r, right = self._right_cap.read()
 
             if not ok_l or not ok_r:
-                logger.warning("Stereo grab failed -- retrying")
+                logger.debug("Stereo grab failed -- retrying")
                 time.sleep(0.005)
                 continue
 

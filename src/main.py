@@ -281,7 +281,7 @@ def _get_rss_mb() -> float:
 # Component construction
 # ---------------------------------------------------------------------------
 
-def _build_camera(cfg: Dict[str, Any], mock: bool = False) -> CameraIMUHandler:
+def _build_camera(cfg: Dict[str, Any], mock: bool = False, enable_stereo: bool = True) -> CameraIMUHandler:
     cam = cfg.get("camera", {})
     res = cam.get("resolution", [640, 480])
     return CameraIMUHandler(
@@ -290,6 +290,7 @@ def _build_camera(cfg: Dict[str, Any], mock: bool = False) -> CameraIMUHandler:
         fps=cam.get("fps", 30),
         flip_method=cam.get("flip_method", 0),
         enable_imu=True,
+        enable_stereo=enable_stereo,
         mock=mock,
         backend=cam.get("backend", "jetson"),
         rpi5_cam1_name=cam.get(
@@ -477,7 +478,7 @@ def main() -> None:
             args.sim_imu_topic,
         )
     else:
-        camera = _build_camera(cfg, mock=args.mock)
+        camera = _build_camera(cfg, mock=args.mock, enable_stereo=(args.mode != "imu_only"))
 
     slam: Optional[ORBSLAM3Wrapper] = None
     if args.mode != "imu_only":
@@ -519,6 +520,14 @@ def main() -> None:
     # affecting GStreamer / Argus camera capture.
     if slam is not None:
         _init_slam_with_retry(slam)
+        # If SLAM fell back to mock (bindings missing or init failure), disable
+        # it entirely so fake positions never reach the database.
+        if slam._mock:
+            logger.warning(
+                "SLAM unavailable (bindings missing or init failed) -- "
+                "disabling SLAM, will use IMU dead reckoning"
+            )
+            slam = None
 
     try:
         camera.start()
@@ -537,7 +546,8 @@ def main() -> None:
     _STATUS_INTERVAL = 10.0  # seconds between sensor status publishes
 
     imu_only_mode = (args.mode == "imu_only")
-    dead_reckoning = DeadReckoningIntegrator() if imu_only_mode else None
+    # Also enable dead reckoning when SLAM was disabled due to init failure.
+    dead_reckoning = DeadReckoningIntegrator() if (imu_only_mode or slam is None) else None
 
     try:
         while not shutdown:
