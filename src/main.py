@@ -25,6 +25,7 @@ for _lib in ("/usr/lib/aarch64-linux-gnu/libgomp.so.1", "gomp"):
 import argparse
 import json
 import logging
+import math
 import os
 import signal
 import sys
@@ -165,6 +166,10 @@ def _parse_args() -> argparse.Namespace:
             "slam_imu (default): run SLAM and fall back to IMU-only when tracking fails; "
             "imu_only: skip SLAM entirely and publish only IMU data"
         ),
+    )
+    p.add_argument(
+        "--debug-imu", action="store_true",
+        help="Print live acceleration, gyro, and tilt data to the terminal (one line, overwrites in place)",
     )
     p.add_argument(
         "--sim", action="store_true",
@@ -406,6 +411,48 @@ def _show_stereo(
 
 
 # ---------------------------------------------------------------------------
+# IMU debug display
+# ---------------------------------------------------------------------------
+
+def _print_imu_debug(imu_batch: List[Any], pos: Optional[tuple]) -> None:
+    """Print a single overwriting line with accel, tilt, gyro, and position.
+
+    Uses the most recent sample in *imu_batch*.
+    Tilt is computed from the accelerometer assuming Y is the gravity axis:
+      roll  = angle of X relative to gravity (sideways tilt)
+      pitch = angle of Z relative to gravity (forward/back tilt)
+    """
+    if not imu_batch:
+        return
+
+    s = imu_batch[-1]
+    ax = float(s.get("accel_x", 0.0))
+    ay = float(s.get("accel_y", 0.0))
+    az = float(s.get("accel_z", 0.0))
+    gx = float(s.get("gyro_x", 0.0))
+    gy = float(s.get("gyro_y", 0.0))
+    gz = float(s.get("gyro_z", 0.0))
+
+    # Tilt angles from accelerometer (degrees)
+    roll  = math.degrees(math.atan2(ax, ay))
+    pitch = math.degrees(math.atan2(az, ay))
+
+    pos_str = ""
+    if pos is not None:
+        pos_str = f"  dr=({pos[0]:+.3f},{pos[2]:+.3f})m"
+
+    line = (
+        f"[IMU]  "
+        f"accel x={ax:+.3f}g y={ay:+.3f}g z={az:+.3f}g  |  "
+        f"tilt roll={roll:+.1f}° pitch={pitch:+.1f}°  |  "
+        f"gyro x={gx:+.1f} y={gy:+.1f} z={gz:+.1f} °/s"
+        f"{pos_str}"
+    )
+    # Pad to clear any leftover characters, then overwrite
+    print(f"\r{line:<120}", end="", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -546,7 +593,11 @@ def main() -> None:
                 telem_file.write(json.dumps(payload) + "\n")
                 telem_file.flush()
 
-            # 5. Optional visualisation (only when camera frames are available).
+            # 5. Optional IMU debug display.
+            if args.debug_imu and imu_batch:
+                _print_imu_debug(imu_batch, pos if not tracking_ok else None)
+
+            # 6. Optional visualisation (only when camera frames are available).
             if visualize and not imu_only_mode:
                 state = slam.state if slam is not None else TrackingState.LOST
                 if not _show_stereo(left, right, state):
