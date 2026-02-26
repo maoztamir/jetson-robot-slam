@@ -31,14 +31,14 @@ Parameters:
 
   OriginLatitude:
     Type: String
-    Default: "32.0853"
+    Default: "43.6532"
     Description: >-
       GPS latitude of the SLAM coordinate-system origin.  Used by the
       Lambda function to convert SLAM metres into WGS-84 coordinates.
 
   OriginLongitude:
     Type: String
-    Default: "34.7818"
+    Default: "-79.3832"
     Description: GPS longitude of the SLAM coordinate-system origin.
 
   TtlDays:

@@ -55,8 +55,8 @@ import matplotlib.patches as mpatches
 DEFAULT_REGION = "us-east-2"
 DEFAULT_TABLE = "RobotTrajectory"
 # SLAM ENU origin — matches the CloudFormation ORIGIN_LAT / ORIGIN_LON values
-ORIGIN_LAT = 32.0853
-ORIGIN_LON = 34.7818
+ORIGIN_LAT = 43.6532   # Toronto, ON
+ORIGIN_LON = -79.3832
 METRES_PER_DEG_LAT = 111_320.0
 
 # Colour palette for up to 10 simultaneous devices
