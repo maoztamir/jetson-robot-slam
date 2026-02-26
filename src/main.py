@@ -40,6 +40,7 @@ import yaml
 from src.sensors.camera_imu_handler import CameraIMUHandler, IMUSample
 from src.sensors.isaac_sim_handler import IsaacSimCameraIMUHandler
 from src.slam.orb_slam3_wrapper import ORBSLAM3Wrapper, TrackingState
+from src.slam.dead_reckoning import DeadReckoningIntegrator
 from src.cloud.aws_iot_publisher import AWSIoTPublisher
 
 logger = logging.getLogger("robot")
@@ -489,6 +490,7 @@ def main() -> None:
     _STATUS_INTERVAL = 10.0  # seconds between sensor status publishes
 
     imu_only_mode = (args.mode == "imu_only")
+    dead_reckoning = DeadReckoningIntegrator() if imu_only_mode else None
 
     try:
         while not shutdown:
@@ -535,10 +537,11 @@ def main() -> None:
             elif imu_batch:
                 # SLAM unavailable or disabled — publish IMU-only data.
                 logger.debug("SLAM unavailable — publishing IMU-only data")
+                pos = dead_reckoning.update(imu_batch) if dead_reckoning else None
                 if publisher is not None and publisher.is_connected:
-                    publisher.publish_imu(imu_batch, ts)
+                    publisher.publish_imu(imu_batch, ts, position=pos)
                 payload = AWSIoTPublisher.build_imu_payload(
-                    imu_batch, ts, thing_name,
+                    imu_batch, ts, thing_name, position=pos,
                 )
                 telem_file.write(json.dumps(payload) + "\n")
                 telem_file.flush()

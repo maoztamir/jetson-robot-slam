@@ -82,7 +82,11 @@ async function pollTrajectory() {
 
     poses.forEach((pose) => {
       const deviceId = pose.device_id || "unknown";
-      handleTrajectoryMessage(deviceId, pose);
+      // imu_only records: adapt z→y for the trajectory handler
+      if (pose.type === "imu_only" && pose.position) {
+        pose.position.y = pose.position.z;
+      }
+      if (pose.position) handleTrajectoryMessage(deviceId, pose);
 
       // Track latest timestamp for incremental polling
       const ts = pose.timestamp || 0;
@@ -358,18 +362,23 @@ async function loadTrajectory(deviceId) {
       if (!slamOnlyMode) switchToSlamMap();
     }
 
-    const points = result.Items.map((item) => {
-      const pos = item.position.M;
-      const x = parseFloat(pos.x.N);
-      const y = parseFloat(pos.y.N);
-      // Use GPS coordinates if available
-      if (item.gps && item.gps.M) {
-        const lat = parseFloat(item.gps.M.lat.N);
-        const lon = parseFloat(item.gps.M.lon.N);
-        return [lat, lon];
-      }
-      return slamToLatLng(x, y);
-    });
+    const points = result.Items
+      .filter((item) => item.position && item.position.M)  // skip records without position
+      .map((item) => {
+        const pos = item.position.M;
+        const x = parseFloat(pos.x.N);
+        const y = parseFloat(pos.y.N);
+        const z = pos.z ? parseFloat(pos.z.N) : 0;
+        // Use GPS coordinates if available
+        if (item.gps && item.gps.M) {
+          const lat = parseFloat(item.gps.M.lat.N);
+          const lon = parseFloat(item.gps.M.lon.N);
+          return [lat, lon];
+        }
+        // SLAM pose: y=north, x=east.  IMU dead-reckoning: x=east, z=forward (use as north).
+        const isImuOnly = item.type && item.type.S === "imu_only";
+        return isImuOnly ? slamToLatLng(x, z) : slamToLatLng(x, y);
+      });
 
     if (points.length === 0) {
       devices[deviceId] = { polyline: null, marker: null, points: [] };
@@ -497,8 +506,9 @@ function initMQTT() {
       console.log("MQTT connected");
       statusDot.className = "status-dot connected";
 
-      // Subscribe to all robot trajectory and status topics
+      // Subscribe to all robot trajectory, IMU, and status topics
       mqttClient.subscribe("robot/+/trajectory", { qos: 0 });
+      mqttClient.subscribe("robot/+/imu", { qos: 0 });
       mqttClient.subscribe("robot/+/status", { qos: 0 });
     },
     onFailure: (err) => {
@@ -592,6 +602,9 @@ function handleMqttMessage(topic, payload) {
 
   if (msgType === "trajectory") {
     handleTrajectoryMessage(deviceId, payload);
+  } else if (msgType === "imu") {
+    // IMU-only record — render trajectory if dead-reckoned position is present
+    if (payload.position) handleTrajectoryMessage(deviceId, payload);
   } else if (msgType === "status") {
     handleStatusMessage(deviceId, payload);
   }

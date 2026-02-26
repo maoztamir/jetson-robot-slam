@@ -285,6 +285,7 @@ class AWSIoTPublisher:
         imu_samples: list,
         timestamp: float,
         thing_name: str,
+        position: Optional[tuple] = None,
     ) -> dict:
         """Build an IMU-only payload dict from a list of IMU samples.
 
@@ -295,11 +296,16 @@ class AWSIoTPublisher:
                          accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z).
             timestamp:   Frame timestamp (monotonic).
             thing_name:  Device / thing identifier.
+            position:    Optional ``(x, y, z)`` dead-reckoned position in
+                         metres.  When provided the payload includes a
+                         ``position`` field so the web dashboard can render
+                         the trajectory the same way as SLAM poses.
 
         Returns:
-            Dict with ``timestamp``, ``device_id``, ``type``, and ``imu`` keys.
+            Dict with ``timestamp``, ``device_id``, ``type``, and ``imu`` keys,
+            plus ``position`` when provided.
         """
-        return {
+        payload: dict = {
             "timestamp": round(float(timestamp), 4),
             "device_id": thing_name,
             "type": "imu_only",
@@ -308,11 +314,19 @@ class AWSIoTPublisher:
                 for s in imu_samples
             ],
         }
+        if position is not None:
+            payload["position"] = {
+                "x": round(float(position[0]), 4),
+                "y": round(float(position[1]), 4),
+                "z": round(float(position[2]), 4),
+            }
+        return payload
 
     def publish_imu(
         self,
         imu_samples: list,
         timestamp: float,
+        position: Optional[tuple] = None,
     ) -> bool:
         """Publish IMU-only data to the imu topic.
 
@@ -321,11 +335,14 @@ class AWSIoTPublisher:
         Args:
             imu_samples: List of IMUSample dicts.
             timestamp:   Frame timestamp (monotonic).
+            position:    Optional ``(x, y, z)`` dead-reckoned position.
 
         Returns:
             ``True`` if published, ``False`` on failure.
         """
-        payload = self.build_imu_payload(imu_samples, timestamp, self._thing_name)
+        payload = self.build_imu_payload(
+            imu_samples, timestamp, self._thing_name, position=position,
+        )
         return self._publish(self._topic_imu, payload)
 
     @staticmethod
