@@ -489,7 +489,7 @@ def main() -> None:
     if args.mode != "imu_only":
         slam = _build_slam(cfg)
     else:
-        logger.info("Mode: imu_only — SLAM disabled, publishing IMU data only")
+        logger.info("Mode: imu_only - SLAM disabled, publishing IMU data only")
 
     publisher: Optional[AWSIoTPublisher] = None
     aws_cfg = cfg.get("aws", {})

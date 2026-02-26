@@ -328,9 +328,12 @@ class AWSIoTPublisher:
         timestamp: float,
         position: Optional[tuple] = None,
     ) -> bool:
-        """Publish IMU-only data to the imu topic.
+        """Publish IMU-only data to the trajectory topic.
 
-        Called when SLAM is unavailable so inertial data still reaches AWS.
+        Publishing to the trajectory topic (not the imu topic) ensures the
+        IoT Rule routes these records to DynamoDB.  The Lambda already handles
+        ``type: "imu_only"`` payloads gracefully (stores to DynamoDB, skips
+        Location Service update).
 
         Args:
             imu_samples: List of IMUSample dicts.
@@ -343,7 +346,7 @@ class AWSIoTPublisher:
         payload = self.build_imu_payload(
             imu_samples, timestamp, self._thing_name, position=position,
         )
-        return self._publish(self._topic_imu, payload)
+        return self._publish(self._topic_trajectory, payload)
 
     @staticmethod
     def build_pose_payload(
