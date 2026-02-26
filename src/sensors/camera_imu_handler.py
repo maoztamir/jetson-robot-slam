@@ -105,12 +105,59 @@ def build_gstreamer_pipeline(
 # IMU reader (I2C)
 # ---------------------------------------------------------------------------
 
+class _ICM20948Direct:
+    """Minimal ICM-20948 accel+gyro reader via smbus2 — no AK09916 needed.
+
+    Used as a fallback when the Pimoroni icm20948 library fails to
+    initialise the AK09916 magnetometer (absent on some module revisions).
+    Reads only accelerometer and gyroscope — sufficient for dead reckoning.
+
+    Default scale: accel ±2 g (16384 LSB/g), gyro ±250 dps (131 LSB/dps).
+    """
+
+    _REG_BANK_SEL  = 0x7F
+    _PWR_MGMT_1    = 0x06
+    _ACCEL_XOUT_H  = 0x2D   # Bank 0; 12 consecutive bytes through GYRO_ZOUT_L
+
+    _ACCEL_SCALE   = 16384.0   # LSB per g   for ±2 g
+    _GYRO_SCALE    = 131.0     # LSB per dps for ±250 dps
+
+    def __init__(self, bus_id: int, address: int) -> None:
+        from smbus2 import SMBus
+        self._bus  = SMBus(bus_id)
+        self._addr = address
+        # Select bank 0, then wake the chip
+        self._bus.write_byte_data(self._addr, self._REG_BANK_SEL, 0x00)
+        self._bus.write_byte_data(self._addr, self._PWR_MGMT_1, 0x01)
+        time.sleep(0.1)
+
+    def read_accelerometer_gyro_data(self) -> tuple:
+        """Return (ax, ay, az, gx, gy, gz) in g and deg/s."""
+        d = self._bus.read_i2c_block_data(self._addr, self._ACCEL_XOUT_H, 12)
+        ax = self._s16(d[0],  d[1])  / self._ACCEL_SCALE
+        ay = self._s16(d[2],  d[3])  / self._ACCEL_SCALE
+        az = self._s16(d[4],  d[5])  / self._ACCEL_SCALE
+        gx = self._s16(d[6],  d[7])  / self._GYRO_SCALE
+        gy = self._s16(d[8],  d[9])  / self._GYRO_SCALE
+        gz = self._s16(d[10], d[11]) / self._GYRO_SCALE
+        return ax, ay, az, gx, gy, gz
+
+    @staticmethod
+    def _s16(high: int, low: int) -> int:
+        v = (high << 8) | low
+        return v - 0x10000 if v >= 0x8000 else v
+
+
 class _IMUReader:
     """ICM-20948 IMU reader using the Pimoroni ``icm20948`` library.
 
     If the library is not installed or the physical sensor is unreachable
     the reader falls back to synthetic (mock) data so that the rest of
     the pipeline can still be exercised on a desktop.
+
+    If the Pimoroni library fails only because of a missing AK09916
+    magnetometer (some module hardware revisions omit it), a direct smbus2
+    reader is used instead — sufficient for accel+gyro dead reckoning.
     """
 
     def __init__(
@@ -120,7 +167,7 @@ class _IMUReader:
     ) -> None:
         self._bus_id = bus
         self._address = address
-        self._imu: Any = None       # ICM20948 instance when available
+        self._imu: Any = None       # ICM20948 or _ICM20948Direct instance
         self._mock: bool = False
 
     # -- lifecycle --------------------------------------------------------- #
@@ -137,7 +184,24 @@ class _IMUReader:
                 self._bus_id, self._address,
             )
         except Exception as exc:
-            logger.warning("IMU unavailable (%s) -- using mock data", exc)
+            if "AK09916" in str(exc):
+                # Magnetometer sub-chip absent on this module revision.
+                # Fall back to direct smbus2 reader (accel+gyro only).
+                try:
+                    self._imu = _ICM20948Direct(self._bus_id, self._address)
+                    self._mock = False
+                    logger.info(
+                        "IMU (ICM-20948) opened via direct I2C on bus %d "
+                        "(AK09916 magnetometer bypassed)",
+                        self._bus_id,
+                    )
+                    return
+                except Exception as exc2:
+                    logger.warning(
+                        "IMU direct read also failed (%s) -- using mock data", exc2,
+                    )
+            else:
+                logger.warning("IMU unavailable (%s) -- using mock data", exc)
             self._imu = None
             self._mock = True
 
