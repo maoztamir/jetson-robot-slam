@@ -488,17 +488,28 @@ def main() -> None:
     last_status_publish = 0.0
     _STATUS_INTERVAL = 10.0  # seconds between sensor status publishes
 
+    imu_only_mode = (args.mode == "imu_only")
+
     try:
         while not shutdown:
-            # 1. Get stereo frame (blocks up to 0.5 s).
-            frame = camera.get_stereo_frame(timeout=0.5)
-            if frame is None:
-                continue
-            left, right, ts = frame
-            perf.tick_frame()
+            if imu_only_mode:
+                # IMU-only: no camera frames needed — block on IMU queue directly.
+                imu_sample = camera.get_imu_sample(timeout=0.5)
+                if imu_sample is None:
+                    continue
+                ts = imu_sample.get("timestamp", time.monotonic())
+                imu_batch = [imu_sample] + _drain_imu(camera, max_samples=9)
+                left = right = None
+            else:
+                # 1. Get stereo frame (blocks up to 0.5 s).
+                frame = camera.get_stereo_frame(timeout=0.5)
+                if frame is None:
+                    continue
+                left, right, ts = frame
+                # 2. Collect recent IMU measurements.
+                imu_batch = _drain_imu(camera, max_samples=10)
 
-            # 2. Collect recent IMU measurements.
-            imu_batch = _drain_imu(camera, max_samples=10)
+            perf.tick_frame()
 
             # 3. Process through SLAM (skipped in imu_only mode).
             pose = None
@@ -532,8 +543,8 @@ def main() -> None:
                 telem_file.write(json.dumps(payload) + "\n")
                 telem_file.flush()
 
-            # 5. Optional visualisation.
-            if visualize:
+            # 5. Optional visualisation (only when camera frames are available).
+            if visualize and not imu_only_mode:
                 state = slam.state if slam is not None else TrackingState.LOST
                 if not _show_stereo(left, right, state):
                     shutdown = True
@@ -555,7 +566,7 @@ def main() -> None:
                 )
                 is_sim = isinstance(camera, IsaacSimCameraIMUHandler)
                 sensors = {
-                    "camera": "sim" if is_sim else ("mock" if camera._mock else ("ok" if camera.is_running else "error")),
+                    "camera": "n/a" if imu_only_mode else ("sim" if is_sim else ("mock" if camera._mock else ("ok" if camera.is_running else "error"))),
                     "imu": "sim" if is_sim else ("mock" if imu_mock else "ok"),
                     "slam": "disabled" if slam is None else ("mock" if slam._mock else "ok"),
                     "gps": "n/a",
