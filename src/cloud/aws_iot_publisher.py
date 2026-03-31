@@ -444,6 +444,48 @@ class AWSIoTPublisher:
         payload.setdefault("timestamp", round(time.time(), 4))
         return self._publish(self._topic_telemetry, payload)
 
+    @staticmethod
+    def build_gps_payload(
+        fix: Dict[str, Any],
+        thing_name: str,
+    ) -> dict:
+        """Build a GPS fix payload dict.
+
+        Args:
+            fix:        Dict from ``GPSReader.get_fix()`` with keys:
+                        latitude, longitude, altitude_m, fix_quality,
+                        num_satellites, hdop, timestamp.
+            thing_name: Device / thing identifier.
+
+        Returns:
+            Dict with ``timestamp``, ``device_id``, ``type``, and ``gps`` keys.
+        """
+        return {
+            "timestamp": fix.get("timestamp", round(time.time(), 4)),
+            "device_id": thing_name,
+            "type": "gps",
+            "gps": {
+                "latitude": fix["latitude"],
+                "longitude": fix["longitude"],
+                "altitude_m": fix.get("altitude_m"),
+                "fix_quality": fix.get("fix_quality"),
+                "num_satellites": fix.get("num_satellites"),
+                "hdop": fix.get("hdop"),
+            },
+        }
+
+    def publish_gps(self, fix: Dict[str, Any]) -> bool:
+        """Publish a GPS fix to the telemetry topic.
+
+        Args:
+            fix: Dict from ``GPSReader.get_fix()``.
+
+        Returns:
+            ``True`` if published, ``False`` on failure.
+        """
+        payload = self.build_gps_payload(fix, self._thing_name)
+        return self._publish(self._topic_telemetry, payload)
+
     # --------------------------------------------------------------- private
 
     def _publish(self, topic: str, payload: dict) -> bool:

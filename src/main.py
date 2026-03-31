@@ -40,6 +40,7 @@ import numpy as np
 import yaml
 
 from src.sensors.camera_imu_handler import CameraIMUHandler, IMUSample
+from src.sensors.gps_reader import GPSReader
 from src.sensors.isaac_sim_handler import IsaacSimCameraIMUHandler
 from src.slam.orb_slam3_wrapper import ORBSLAM3Wrapper, TrackingState
 from src.slam.dead_reckoning import DeadReckoningIntegrator
@@ -191,6 +192,18 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--sim-imu-topic", default="/imu",
         help="ROS 2 topic for IMU (sim mode only)",
+    )
+    p.add_argument(
+        "--gps-port", default="/dev/ttyTHS1",
+        help="Serial port for GPS NMEA receiver (default: /dev/ttyTHS1)",
+    )
+    p.add_argument(
+        "--gps-baud", type=int, default=9600,
+        help="GPS serial baud rate (default: 9600)",
+    )
+    p.add_argument(
+        "--no-gps", action="store_true",
+        help="Disable GPS reader",
     )
     return p.parse_args()
 
@@ -499,6 +512,16 @@ def main() -> None:
     perf_interval = cfg.get("performance", {}).get("log_stats_interval", 30)
     perf = _PerfMonitor(interval=perf_interval)
 
+    # ---- GPS ------------------------------------------------------------- #
+    gps: Optional[GPSReader] = None
+    if not args.no_gps and not args.sim and not args.mock:
+        gps_cfg = cfg.get("gps", {})
+        gps = GPSReader(
+            port=gps_cfg.get("port", args.gps_port),
+            baud=gps_cfg.get("baud", args.gps_baud),
+        )
+        gps.start()
+
     # ---- telemetry file -------------------------------------------------- #
     if not args.telemetry_file:
         thing_name = cfg.get("aws", {}).get("thing_name", "robot")
@@ -612,7 +635,17 @@ def main() -> None:
                 telem_file.write(json.dumps(payload) + "\n")
                 telem_file.flush()
 
-            # 5. Optional IMU debug display.
+            # 5a. GPS: publish and save locally whenever a fix is available.
+            if gps is not None:
+                fix = gps.get_fix()
+                if fix is not None:
+                    if publisher is not None and publisher.is_connected:
+                        publisher.publish_gps(fix)
+                    gps_payload = AWSIoTPublisher.build_gps_payload(fix, thing_name)
+                    telem_file.write(json.dumps(gps_payload) + "\n")
+                    telem_file.flush()
+
+            # 5b. Optional IMU debug display.
             if args.debug_imu and imu_batch:
                 _print_imu_debug(imu_batch, pos if not tracking_ok else None)
 
@@ -638,11 +671,19 @@ def main() -> None:
                     and camera._imu_reader._mock
                 )
                 is_sim = isinstance(camera, IsaacSimCameraIMUHandler)
+                if gps is None:
+                    gps_status = "disabled"
+                elif gps._mock:
+                    gps_status = "mock"
+                elif gps.get_fix() is not None:
+                    gps_status = "ok"
+                else:
+                    gps_status = "no_fix"
                 sensors = {
                     "camera": "n/a" if imu_only_mode else ("sim" if is_sim else ("mock" if camera._mock else ("ok" if camera.is_running else "error"))),
                     "imu": "sim" if is_sim else ("mock" if imu_mock else "ok"),
                     "slam": "disabled" if slam is None else ("mock" if slam._mock else "ok"),
-                    "gps": "n/a",
+                    "gps": gps_status,
                 }
                 if publisher is not None:
                     publisher.publish_sensor_status(sensors)
@@ -666,6 +707,8 @@ def main() -> None:
     # ---- shutdown -------------------------------------------------------- #
     finally:
         logger.info("Shutting down...")
+        if gps is not None:
+            gps.stop()
         camera.stop()
 
         if slam is not None:
