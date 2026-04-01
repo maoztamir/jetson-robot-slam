@@ -319,7 +319,7 @@ class AWSIoTPublisher:
             "device_id": thing_name,
             "type": "imu_only",
             "imu": [
-                {k: round(float(v), 6) for k, v in s.items()}
+                {k: round(float(v), 6) for k, v in s.items() if k not in ("timestamp", "timestamp_iso")}
                 for s in imu_samples
             ],
         }
