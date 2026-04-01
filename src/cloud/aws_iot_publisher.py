@@ -31,6 +31,7 @@ Typical usage::
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import math
@@ -41,6 +42,14 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def _iso_now() -> str:
+    """Return the current UTC time as an ISO-8601 string with timezone offset.
+
+    Example: ``"2026-03-31T19:51:54.123456+00:00"``
+    """
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +315,7 @@ class AWSIoTPublisher:
             plus ``position`` when provided.
         """
         payload: dict = {
-            "timestamp": round(float(timestamp), 4),
+            "timestamp": _iso_now(),
             "device_id": thing_name,
             "type": "imu_only",
             "imu": [
@@ -372,7 +381,7 @@ class AWSIoTPublisher:
         orientation = rotation_matrix_to_quaternion(pose_matrix[:3, :3])
 
         return {
-            "timestamp": round(float(timestamp), 4),
+            "timestamp": _iso_now(),
             "device_id": thing_name,
             "position": {
                 "x": round(float(position[0]), 4),
@@ -421,7 +430,7 @@ class AWSIoTPublisher:
         """
         payload = {
             "device_id": self._thing_name,
-            "timestamp": round(time.time(), 4),
+            "timestamp": _iso_now(),
             "sensors": sensors,
         }
         return self._publish(self._topic_status, payload)
@@ -441,7 +450,7 @@ class AWSIoTPublisher:
         """
         payload = dict(data)
         payload.setdefault("device_id", self._thing_name)
-        payload.setdefault("timestamp", round(time.time(), 4))
+        payload.setdefault("timestamp", _iso_now())
         return self._publish(self._topic_telemetry, payload)
 
     @staticmethod
@@ -461,7 +470,7 @@ class AWSIoTPublisher:
             Dict with ``timestamp``, ``device_id``, ``type``, and ``gps`` keys.
         """
         return {
-            "timestamp": fix.get("timestamp", round(time.time(), 4)),
+            "timestamp": _iso_now(),
             "device_id": thing_name,
             "type": "gps",
             "gps": {

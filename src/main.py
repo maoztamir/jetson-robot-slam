@@ -690,7 +690,7 @@ def main() -> None:
                 # Write sensor status locally for the dashboard server
                 status_payload = {
                     "device_id": cfg.get("aws", {}).get("thing_name", "jetson-robot-01"),
-                    "timestamp": round(time.time(), 4),
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "sensors": sensors,
                 }
                 status_path = telem_path.parent / "sensor_status.json"

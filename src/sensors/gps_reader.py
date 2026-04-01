@@ -18,6 +18,7 @@ Typical usage::
 
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
 import time
@@ -157,7 +158,7 @@ class GPSReader:
                         continue
                     fix = _parse_nmea_gga(line)
                     if fix is not None:
-                        fix["timestamp"] = round(time.time(), 4)
+                        fix["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                         with self._lock:
                             self._fix = fix
                         logger.debug(
