@@ -22,6 +22,7 @@ Typical usage::
 
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
 import time
@@ -233,7 +234,7 @@ class _IMUReader:
         ax, ay, az, gx, gy, gz = self._imu.read_accelerometer_gyro_data()
 
         return {
-            "timestamp": time.monotonic(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "accel_x": ax,
             "accel_y": ay,
             "accel_z": az,
@@ -246,7 +247,7 @@ class _IMUReader:
     def _mock_reading() -> Dict[str, float]:
         """Return a plausible resting IMU sample."""
         return {
-            "timestamp": time.monotonic(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "accel_x": 0.0,
             "accel_y": 0.0,
             "accel_z": 1.0,   # 1 g pointing down at rest
